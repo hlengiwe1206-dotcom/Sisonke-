@@ -24,21 +24,32 @@ class _HomeScreenState extends State<HomeScreen> {
         .from('information_posts')
         .stream(primaryKey: ['id'])
         .map((posts) {
-      final sortedPosts = List<Map<String, dynamic>>.from(posts);
+      final filteredPosts = posts.where((post) {
+        final isPublished = _safeBool(
+          post['is_published'],
+          fallback: true,
+        );
 
-      sortedPosts.sort((a, b) {
-        final aDate =
-            DateTime.tryParse(a['created_at']?.toString() ?? '') ??
-                DateTime.fromMillisecondsSinceEpoch(0);
+        final isVerified = _safeBool(
+          post['is_verified'],
+          fallback: true,
+        );
 
-        final bDate =
-            DateTime.tryParse(b['created_at']?.toString() ?? '') ??
-                DateTime.fromMillisecondsSinceEpoch(0);
+        return isPublished && isVerified;
+      }).toList();
+
+      filteredPosts.sort((a, b) {
+        final aDate = _postDate(a);
+        final bDate = _postDate(b);
+
+        if (aDate == null && bDate == null) return 0;
+        if (aDate == null) return 1;
+        if (bDate == null) return -1;
 
         return bDate.compareTo(aDate);
       });
 
-      return sortedPosts;
+      return filteredPosts;
     });
   }
 
@@ -47,15 +58,28 @@ class _HomeScreenState extends State<HomeScreen> {
       _postsStream = _loadPosts();
     });
 
-    await Future.delayed(const Duration(milliseconds: 500));
+    await Future<void>.delayed(
+      const Duration(milliseconds: 500),
+    );
   }
 
-  String _safeText(dynamic value, {String fallback = ''}) {
+  String _safeText(
+    dynamic value, {
+    String fallback = '',
+  }) {
     if (value == null) return fallback;
-    return value.toString();
+
+    final text = value.toString().trim();
+
+    if (text.isEmpty) return fallback;
+
+    return text;
   }
 
-  bool _safeBool(dynamic value, {bool fallback = false}) {
+  bool _safeBool(
+    dynamic value, {
+    bool fallback = false,
+  }) {
     if (value == null) return fallback;
 
     if (value is bool) return value;
@@ -64,7 +88,8 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   DateTime? _postDate(Map<String, dynamic> post) {
-    final value = post['published_at'] ??
+    final value =
+        post['published_at'] ??
         post['created_at'] ??
         post['updated_at'];
 
@@ -99,93 +124,197 @@ class _HomeScreenState extends State<HomeScreen> {
       return '${difference.inDays} days ago';
     }
 
-    return '${date.day.toString().padLeft(2, '0')}/'
-        '${date.month.toString().padLeft(2, '0')}/'
-        '${date.year}';
+    return '${date.day}/${date.month}/${date.year}';
   }
 
   Color _categoryColor(String category) {
-    final value = category.toLowerCase();
+    switch (category.toLowerCase()) {
+      case 'opportunity':
+      case 'opportunities':
+        return const Color(0xFF1F4F7C);
 
-    if (value.contains('employment') || value.contains('job')) {
-      return const Color(0xFF0E6B4A);
+      case 'community':
+        return const Color(0xFF0E6B4B);
+
+      case 'employment':
+      case 'jobs':
+        return const Color(0xFFE85D2A);
+
+      case 'education':
+        return const Color(0xFF6C4AB6);
+
+      case 'health':
+        return const Color(0xFFD64545);
+
+      case 'government':
+        return const Color(0xFF6B7280);
+
+      case 'emergency':
+        return const Color(0xFFC62828);
+
+      default:
+        return const Color(0xFFFFB000);
     }
-
-    if (value.contains('education') ||
-        value.contains('training') ||
-        value.contains('learnership')) {
-      return const Color(0xFF1E4F7A);
-    }
-
-    if (value.contains('business') ||
-        value.contains('tender') ||
-        value.contains('opportunit')) {
-      return const Color(0xFFF0A500);
-    }
-
-    if (value.contains('alert') ||
-        value.contains('urgent') ||
-        value.contains('emergency')) {
-      return const Color(0xFFE53935);
-    }
-
-    return const Color(0xFF6B7280);
   }
 
   IconData _categoryIcon(String category) {
-    final value = category.toLowerCase();
+    switch (category.toLowerCase()) {
+      case 'opportunity':
+      case 'opportunities':
+        return Icons.work_outline_rounded;
 
-    if (value.contains('employment') || value.contains('job')) {
-      return Icons.work_outline;
+      case 'community':
+        return Icons.people_outline_rounded;
+
+      case 'employment':
+      case 'jobs':
+        return Icons.business_center_outlined;
+
+      case 'education':
+        return Icons.school_outlined;
+
+      case 'health':
+        return Icons.health_and_safety_outlined;
+
+      case 'government':
+        return Icons.account_balance_outlined;
+
+      case 'emergency':
+        return Icons.warning_amber_rounded;
+
+      default:
+        return Icons.info_outline_rounded;
     }
+  }
 
-    if (value.contains('education') ||
-        value.contains('training') ||
-        value.contains('learnership')) {
-      return Icons.school_outlined;
-    }
+  void _showActionSheet({
+    required String title,
+    required String description,
+    required IconData icon,
+    required Color color,
+  }) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (context) {
+        return Container(
+          padding: const EdgeInsets.fromLTRB(24, 24, 24, 36),
+          decoration: const BoxDecoration(
+            color: Color(0xFF151515),
+            borderRadius: BorderRadius.vertical(
+              top: Radius.circular(30),
+            ),
+          ),
+          child: SafeArea(
+            top: false,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 46,
+                  height: 5,
+                  decoration: BoxDecoration(
+                    color: Colors.white24,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                ),
+                const SizedBox(height: 28),
+                Container(
+                  width: 68,
+                  height: 68,
+                  decoration: BoxDecoration(
+                    color: color.withOpacity(0.18),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Icon(
+                    icon,
+                    color: color,
+                    size: 34,
+                  ),
+                ),
+                const SizedBox(height: 20),
+                Text(
+                  title,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 25,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  description,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    color: Colors.white70,
+                    fontSize: 16,
+                    height: 1.5,
+                  ),
+                ),
+                const SizedBox(height: 28),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: () {
+                      Navigator.pop(context);
 
-    if (value.contains('business') ||
-        value.contains('tender') ||
-        value.contains('opportunit')) {
-      return Icons.business_center_outlined;
-    }
-
-    if (value.contains('alert') ||
-        value.contains('urgent') ||
-        value.contains('emergency')) {
-      return Icons.warning_amber_rounded;
-    }
-
-    if (value.contains('health')) {
-      return Icons.health_and_safety_outlined;
-    }
-
-    if (value.contains('government')) {
-      return Icons.account_balance_outlined;
-    }
-
-    return Icons.info_outline;
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text('$title feature coming next.'),
+                        ),
+                      );
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: color,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(
+                        vertical: 16,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                    ),
+                    child: const Text(
+                      'CONTINUE',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 0.8,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
   }
 
   void _showPostDetails(Map<String, dynamic> post) {
-    final title = _safeText(post['title'], fallback: 'Information update');
-
-    final description =
-        _safeText(post['description'], fallback: 'No additional information.');
-
-    final category = _safeText(
-      post['category'],
+    final title = _safeText(
+      post['title'],
       fallback: 'Community Information',
     );
 
-    final source = _safeText(post['source']);
-
-    final verified = _safeBool(
-      post['is_verified'] ?? post['verified'],
+    final description = _safeText(
+      post['description'],
+      fallback: 'No additional information is available.',
     );
 
-    final categoryColor = _categoryColor(category);
+    final category = _safeText(
+      post['category'],
+      fallback: 'Information',
+    );
+
+    final source = _safeText(
+      post['source_name'] ??
+          post['source'] ??
+          post['organisation'],
+    );
+
+    final date = _formatDate(_postDate(post));
 
     showModalBottomSheet(
       context: context,
@@ -195,93 +324,138 @@ class _HomeScreenState extends State<HomeScreen> {
         return DraggableScrollableSheet(
           initialChildSize: 0.72,
           minChildSize: 0.45,
-          maxChildSize: 0.92,
+          maxChildSize: 0.94,
           builder: (context, scrollController) {
             return Container(
               decoration: const BoxDecoration(
-                color: Colors.white,
+                color: Color(0xFF151515),
                 borderRadius: BorderRadius.vertical(
-                  top: Radius.circular(32),
+                  top: Radius.circular(30),
                 ),
               ),
-              child: Column(
+              child: ListView(
+                controller: scrollController,
+                padding: const EdgeInsets.fromLTRB(
+                  24,
+                  16,
+                  24,
+                  40,
+                ),
                 children: [
-                  const SizedBox(height: 12),
-                  Container(
-                    width: 48,
-                    height: 5,
-                    decoration: BoxDecoration(
-                      color: Colors.grey.shade300,
-                      borderRadius: BorderRadius.circular(20),
+                  Center(
+                    child: Container(
+                      width: 46,
+                      height: 5,
+                      decoration: BoxDecoration(
+                        color: Colors.white24,
+                        borderRadius: BorderRadius.circular(10),
+                      ),
                     ),
                   ),
-                  Expanded(
-                    child: ListView(
-                      controller: scrollController,
-                      padding: const EdgeInsets.fromLTRB(24, 24, 24, 40),
-                      children: [
-                        Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
-                          children: [
-                            _CategoryBadge(
-                              label: category,
-                              color: categoryColor,
-                            ),
-                            if (verified)
-                              const _VerifiedBadge(),
-                          ],
+                  const SizedBox(height: 28),
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 7,
                         ),
-                        const SizedBox(height: 20),
-                        Text(
-                          title,
-                          style: const TextStyle(
-                            fontSize: 28,
+                        decoration: BoxDecoration(
+                          color: _categoryColor(
+                            category,
+                          ).withOpacity(0.18),
+                          borderRadius: BorderRadius.circular(30),
+                        ),
+                        child: Text(
+                          category.toUpperCase(),
+                          style: TextStyle(
+                            color: _categoryColor(category),
+                            fontSize: 12,
                             fontWeight: FontWeight.w800,
-                            color: _SisonkeColors.textDark,
-                            height: 1.15,
+                            letterSpacing: 0.7,
                           ),
                         ),
-                        const SizedBox(height: 18),
-                        Text(
-                          description,
-                          style: const TextStyle(
-                            fontSize: 17,
-                            height: 1.6,
-                            color: _SisonkeColors.textGrey,
+                      ),
+                      const Spacer(),
+                      const Icon(
+                        Icons.verified_rounded,
+                        color: Color(0xFFFFC247),
+                        size: 20,
+                      ),
+                      const SizedBox(width: 6),
+                      const Text(
+                        'VERIFIED',
+                        style: TextStyle(
+                          color: Colors.white70,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 24),
+                  Text(
+                    title,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 28,
+                      fontWeight: FontWeight.w800,
+                      height: 1.15,
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  Text(
+                    description,
+                    style: const TextStyle(
+                      color: Colors.white70,
+                      fontSize: 17,
+                      height: 1.65,
+                    ),
+                  ),
+                  const SizedBox(height: 28),
+                  const Divider(
+                    color: Colors.white12,
+                  ),
+                  const SizedBox(height: 18),
+                  Row(
+                    children: [
+                      const Icon(
+                        Icons.schedule_outlined,
+                        color: Colors.white54,
+                        size: 20,
+                      ),
+                      const SizedBox(width: 10),
+                      Text(
+                        date,
+                        style: const TextStyle(
+                          color: Colors.white60,
+                          fontSize: 14,
+                        ),
+                      ),
+                    ],
+                  ),
+                  if (source.isNotEmpty) ...[
+                    const SizedBox(height: 14),
+                    Row(
+                      children: [
+                        const Icon(
+                          Icons.business_outlined,
+                          color: Colors.white54,
+                          size: 20,
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            source,
+                            style: const TextStyle(
+                              color: Colors.white60,
+                              fontSize: 14,
+                            ),
                           ),
                         ),
-                        const SizedBox(height: 28),
-                        if (source.isNotEmpty)
-                          Container(
-                            padding: const EdgeInsets.all(16),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFFF5F6F7),
-                              borderRadius: BorderRadius.circular(16),
-                            ),
-                            child: Row(
-                              children: [
-                                const Icon(
-                                  Icons.verified_user_outlined,
-                                  color: _SisonkeColors.green,
-                                ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: Text(
-                                    'Source: $source',
-                                    style: const TextStyle(
-                                      fontSize: 15,
-                                      fontWeight: FontWeight.w600,
-                                      color: _SisonkeColors.textDark,
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
                       ],
                     ),
-                  ),
+                  ],
                 ],
               ),
             );
@@ -291,159 +465,169 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  void _showComingSoon(String feature) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('$feature is coming next.'),
-        behavior: SnackBarBehavior.floating,
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: _SisonkeColors.background,
+      backgroundColor: const Color(0xFFF5F3EE),
       body: SafeArea(
         child: RefreshIndicator(
+          color: const Color(0xFFFFB000),
           onRefresh: _refreshPosts,
-          color: _SisonkeColors.green,
-          child: StreamBuilder<List<Map<String, dynamic>>>(
-            stream: _postsStream,
-            builder: (context, snapshot) {
-              return CustomScrollView(
-                physics: const AlwaysScrollableScrollPhysics(),
-                slivers: [
-                  SliverPadding(
-                    padding: const EdgeInsets.fromLTRB(28, 28, 28, 20),
-                    sliver: SliverList(
-                      delegate: SliverChildListDelegate(
-                        [
-                          const _WelcomeHeader(),
-                          const SizedBox(height: 28),
-
-                          // MAIN ACTIONS
-                          _ActionGrid(
-                            onAskForHelp: () {
-                              _showComingSoon('Ask for Help');
-                            },
-                            onOfferHelp: () {
-                              _showComingSoon('Offer Help');
-                            },
-                            onOpportunities: () {
-                              _showComingSoon('Opportunities');
-                            },
-                            onShareInfo: () {
-                              _showComingSoon('Share Info');
-                            },
-                          ),
-
-                          const SizedBox(height: 32),
-
-                          // INFORMATION HUB HEADER
-                          const _InformationHubHeader(),
-
-                          const SizedBox(height: 16),
-
-                          // LIVE CONTENT
-                          if (snapshot.connectionState ==
-                                  ConnectionState.waiting &&
-                              !snapshot.hasData)
-                            const _LoadingPosts()
-
-                          else if (snapshot.hasError)
-                            _ErrorPosts(
-                              message: snapshot.error.toString(),
-                              onRetry: _refreshPosts,
-                            )
-
-                          else if (!snapshot.hasData ||
-                              snapshot.data!.isEmpty)
-                            const _EmptyPosts()
-
-                          else
-                            ...snapshot.data!
-                                .map(
-                                  (post) => Padding(
-                                    padding:
-                                        const EdgeInsets.only(bottom: 14),
-                                    child: _InformationPostCard(
-                                      post: post,
-                                      safeText: _safeText,
-                                      safeBool: _safeBool,
-                                      formatDate: _formatDate,
-                                      postDate: _postDate,
-                                      categoryColor: _categoryColor,
-                                      categoryIcon: _categoryIcon,
-                                      onTap: () => _showPostDetails(post),
-                                    ),
-                                  ),
-                                )
-                                .toList(),
-
-                          const SizedBox(height: 40),
-
-                          // COMMUNITY INSIGHT
-                          const _CommunityInsightCard(),
-
-                          const SizedBox(height: 32),
-                        ],
-                      ),
-                    ),
+          child: CustomScrollView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            slivers: [
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(
+                    24,
+                    24,
+                    24,
+                    8,
                   ),
-                ],
-              );
-            },
+                  child: _buildHeader(),
+                ),
+              ),
+
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(
+                    24,
+                    20,
+                    24,
+                    8,
+                  ),
+                  child: _buildActionGrid(),
+                ),
+              ),
+
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(
+                    24,
+                    30,
+                    24,
+                    16,
+                  ),
+                  child: _buildInformationHeader(),
+                ),
+              ),
+
+              StreamBuilder<List<Map<String, dynamic>>>(
+                stream: _postsStream,
+                builder: (context, snapshot) {
+                  if (snapshot.connectionState ==
+                      ConnectionState.waiting) {
+                    return const SliverToBoxAdapter(
+                      child: Padding(
+                        padding: EdgeInsets.symmetric(
+                          vertical: 45,
+                        ),
+                        child: Center(
+                          child: CircularProgressIndicator(
+                            color: Color(0xFFFFB000),
+                          ),
+                        ),
+                      ),
+                    );
+                  }
+
+                  if (snapshot.hasError) {
+                    return SliverToBoxAdapter(
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(
+                          24,
+                          10,
+                          24,
+                          40,
+                        ),
+                        child: _buildErrorState(),
+                      ),
+                    );
+                  }
+
+                  final posts = snapshot.data ?? [];
+
+                  if (posts.isEmpty) {
+                    return SliverToBoxAdapter(
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(
+                          24,
+                          10,
+                          24,
+                          50,
+                        ),
+                        child: _buildEmptyState(),
+                      ),
+                    );
+                  }
+
+                  return SliverList(
+                    delegate: SliverChildBuilderDelegate(
+                      (context, index) {
+                        final post = posts[index];
+
+                        return Padding(
+                          padding: EdgeInsets.fromLTRB(
+                            24,
+                            index == 0 ? 0 : 12,
+                            24,
+                            index == posts.length - 1
+                                ? 50
+                                : 0,
+                          ),
+                          child: _buildPostCard(post),
+                        );
+                      },
+                      childCount: posts.length,
+                    ),
+                  );
+                },
+              ),
+            ],
           ),
         ),
       ),
     );
   }
-}
 
-class _WelcomeHeader extends StatelessWidget {
-  const _WelcomeHeader();
-
-  @override
-  Widget build(BuildContext context) {
-    return const Column(
+  Widget _buildHeader() {
+    return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
+        const Text(
           'Good morning,',
           style: TextStyle(
-            fontSize: 20,
+            fontSize: 22,
+            color: Color(0xFF6B7280),
             fontWeight: FontWeight.w500,
-            color: _SisonkeColors.textGrey,
-            letterSpacing: 0.5,
           ),
         ),
-        SizedBox(height: 8),
-        Text(
+        const SizedBox(height: 8),
+        const Text(
           'Together, we can\nmove forward.',
           style: TextStyle(
-            fontSize: 38,
-            fontWeight: FontWeight.w800,
-            height: 1.05,
-            color: _SisonkeColors.textDark,
+            fontSize: 36,
+            height: 1.08,
+            color: Color(0xFF1F232B),
+            fontWeight: FontWeight.w900,
           ),
         ),
-        SizedBox(height: 24),
+        const SizedBox(height: 20),
         Row(
-          children: [
+          children: const [
             Icon(
               Icons.location_on_outlined,
-              size: 28,
-              color: _SisonkeColors.textGrey,
+              color: Color(0xFF6B7280),
+              size: 27,
             ),
-            SizedBox(width: 10),
+            SizedBox(width: 8),
             Expanded(
               child: Text(
                 'Johannesburg, Gauteng',
                 style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.w400,
-                  color: _SisonkeColors.textGrey,
+                  fontSize: 19,
+                  color: Color(0xFF6B7280),
+                  fontWeight: FontWeight.w500,
                 ),
               ),
             ),
@@ -452,321 +636,303 @@ class _WelcomeHeader extends StatelessWidget {
       ],
     );
   }
-}
 
-class _ActionGrid extends StatelessWidget {
-  final VoidCallback onAskForHelp;
-  final VoidCallback onOfferHelp;
-  final VoidCallback onOpportunities;
-  final VoidCallback onShareInfo;
+  Widget _buildActionGrid() {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final cardWidth =
+            (constraints.maxWidth - 16) / 2;
 
-  const _ActionGrid({
-    required this.onAskForHelp,
-    required this.onOfferHelp,
-    required this.onOpportunities,
-    required this.onShareInfo,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      children: [
-        Row(
+        return Wrap(
+          spacing: 16,
+          runSpacing: 16,
           children: [
-            Expanded(
-              child: _ActionCard(
-                backgroundColor: _SisonkeColors.red,
-                icon: Icons.volunteer_activism_outlined,
+            SizedBox(
+              width: cardWidth,
+              child: _buildActionCard(
                 title: 'ASK FOR\nHELP',
-                onTap: onAskForHelp,
+                icon: Icons.volunteer_activism_outlined,
+                color: const Color(0xFFE9322A),
+                onTap: () {
+                  _showActionSheet(
+                    title: 'Ask for Help',
+                    description:
+                        'Request support from people and organisations in your community.',
+                    icon:
+                        Icons.volunteer_activism_outlined,
+                    color: const Color(0xFFE9322A),
+                  );
+                },
               ),
             ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: _ActionCard(
-                backgroundColor: _SisonkeColors.green,
-                icon: Icons.handshake_outlined,
+            SizedBox(
+              width: cardWidth,
+              child: _buildActionCard(
                 title: 'OFFER\nHELP',
-                onTap: onOfferHelp,
+                icon: Icons.handshake_outlined,
+                color: const Color(0xFF0F6B4A),
+                onTap: () {
+                  _showActionSheet(
+                    title: 'Offer Help',
+                    description:
+                        'Offer your skills, resources, knowledge or time to help someone.',
+                    icon: Icons.handshake_outlined,
+                    color: const Color(0xFF0F6B4A),
+                  );
+                },
               ),
             ),
-          ],
-        ),
-        const SizedBox(height: 16),
-        Row(
-          children: [
-            Expanded(
-              child: _ActionCard(
-                backgroundColor: _SisonkeColors.blue,
-                icon: Icons.business_center_outlined,
+            SizedBox(
+              width: cardWidth,
+              child: _buildActionCard(
                 title: 'OPPORTUNITIES',
-                onTap: onOpportunities,
+                icon: Icons.business_center_outlined,
+                color: const Color(0xFF1E4F7F),
+                onTap: () {
+                  _showActionSheet(
+                    title: 'Opportunities',
+                    description:
+                        'Discover jobs, tenders, training, funding and other opportunities.',
+                    icon:
+                        Icons.business_center_outlined,
+                    color: const Color(0xFF1E4F7F),
+                  );
+                },
               ),
             ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: _ActionCard(
-                backgroundColor: _SisonkeColors.gold,
-                icon: Icons.campaign_outlined,
+            SizedBox(
+              width: cardWidth,
+              child: _buildActionCard(
                 title: 'SHARE\nINFO',
-                onTap: onShareInfo,
+                icon: Icons.campaign_outlined,
+                color: const Color(0xFFFFB41F),
+                onTap: () {
+                  _showActionSheet(
+                    title: 'Share Information',
+                    description:
+                        'Help your community by sharing useful and verified information.',
+                    icon: Icons.campaign_outlined,
+                    color: const Color(0xFFFFB41F),
+                  );
+                },
               ),
             ),
           ],
-        ),
-      ],
+        );
+      },
     );
   }
-}
 
-class _ActionCard extends StatelessWidget {
-  final Color backgroundColor;
-  final IconData icon;
-  final String title;
-  final VoidCallback onTap;
-
-  const _ActionCard({
-    required this.backgroundColor,
-    required this.icon,
-    required this.title,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return AspectRatio(
-      aspectRatio: 0.98,
-      child: Material(
-        color: backgroundColor,
-        borderRadius: BorderRadius.circular(34),
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(34),
-          child: Padding(
-            padding: const EdgeInsets.all(20),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Icon(
-                  icon,
-                  size: 46,
-                  color: Colors.white,
-                ),
-                Expanded(
-                  child: Align(
-                    alignment: Alignment.bottomLeft,
-                    child: FittedBox(
-                      fit: BoxFit.scaleDown,
-                      alignment: Alignment.bottomLeft,
-                      child: Text(
-                        title,
-                        maxLines: 2,
-                        style: const TextStyle(
-                          fontSize: 24,
-                          fontWeight: FontWeight.w800,
-                          height: 1.05,
-                          color: Colors.white,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _InformationHubHeader extends StatelessWidget {
-  const _InformationHubHeader();
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        const Expanded(
+  Widget _buildActionCard({
+    required String title,
+    required IconData icon,
+    required Color color,
+    required VoidCallback onTap,
+  }) {
+    return Material(
+      color: color,
+      borderRadius: BorderRadius.circular(32),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(32),
+        child: Container(
+          height: 210,
+          padding: const EdgeInsets.all(26),
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+            crossAxisAlignment:
+                CrossAxisAlignment.start,
             children: [
-              Text(
-                'SISONKE INFORMATION HUB',
-                style: TextStyle(
-                  fontSize: 15,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: 1.2,
-                  color: _SisonkeColors.gold,
-                ),
+              Icon(
+                icon,
+                color: Colors.white,
+                size: 46,
               ),
-              SizedBox(height: 6),
+              const Spacer(),
               Text(
-                'What you need to know',
-                style: TextStyle(
-                  fontSize: 25,
-                  fontWeight: FontWeight.w800,
-                  color: _SisonkeColors.textDark,
+                title,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 22,
+                  height: 1.08,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: 0.3,
                 ),
               ),
             ],
           ),
         ),
-        Icon(
-          Icons.fiber_manual_record,
-          size: 13,
-          color: _SisonkeColors.green,
-        ),
-        const SizedBox(width: 6),
-        const Text(
-          'LIVE',
+      ),
+    );
+  }
+
+  Widget _buildInformationHeader() {
+    return const Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'COMMUNITY INSIGHT',
           style: TextStyle(
-            fontSize: 12,
-            fontWeight: FontWeight.w800,
-            color: _SisonkeColors.green,
+            color: Color(0xFFFFB41F),
+            fontSize: 15,
+            letterSpacing: 1.2,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+        SizedBox(height: 10),
+        Text(
+          'Verified information\nfor our community.',
+          style: TextStyle(
+            color: Color(0xFF1F232B),
+            fontSize: 30,
+            height: 1.15,
+            fontWeight: FontWeight.w900,
           ),
         ),
       ],
     );
   }
-}
 
-class _InformationPostCard extends StatelessWidget {
-  final Map<String, dynamic> post;
-  final String Function(dynamic value, {String fallback}) safeText;
-  final bool Function(dynamic value, {bool fallback}) safeBool;
-  final String Function(DateTime? date) formatDate;
-  final DateTime? Function(Map<String, dynamic> post) postDate;
-  final Color Function(String category) categoryColor;
-  final IconData Function(String category) categoryIcon;
-  final VoidCallback onTap;
-
-  const _InformationPostCard({
-    required this.post,
-    required this.safeText,
-    required this.safeBool,
-    required this.formatDate,
-    required this.postDate,
-    required this.categoryColor,
-    required this.categoryIcon,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final title = safeText(
+  Widget _buildPostCard(
+    Map<String, dynamic> post,
+  ) {
+    final title = _safeText(
       post['title'],
-      fallback: 'Information update',
-    );
-
-    final description = safeText(
-      post['description'],
-      fallback: 'Tap to view more information.',
-    );
-
-    final category = safeText(
-      post['category'],
       fallback: 'Community Information',
     );
 
-    final verified = safeBool(
-      post['is_verified'] ?? post['verified'],
+    final description = _safeText(
+      post['description'],
+      fallback:
+          'Tap to view more information about this community update.',
     );
 
-    final color = categoryColor(category);
-    final icon = categoryIcon(category);
+    final category = _safeText(
+      post['category'],
+      fallback: 'Information',
+    );
+
+    final date = _formatDate(
+      _postDate(post),
+    );
+
+    final source = _safeText(
+      post['source_name'] ??
+          post['source'] ??
+          post['organisation'],
+    );
+
+    final color = _categoryColor(category);
 
     return Material(
-      color: Colors.white,
-      borderRadius: BorderRadius.circular(24),
+      color: const Color(0xFF151515),
+      borderRadius: BorderRadius.circular(30),
       child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(24),
+        borderRadius: BorderRadius.circular(30),
+        onTap: () => _showPostDetails(post),
         child: Padding(
-          padding: const EdgeInsets.all(18),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            crossAxisAlignment:
+                CrossAxisAlignment.start,
             children: [
-              Container(
-                width: 52,
-                height: 52,
-                decoration: BoxDecoration(
-                  color: color.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: Icon(
-                  icon,
-                  color: color,
-                  size: 27,
-                ),
-              ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 6,
-                      crossAxisAlignment: WrapCrossAlignment.center,
-                      children: [
-                        _CategoryBadge(
-                          label: category,
-                          color: color,
-                        ),
-                        if (verified) const _VerifiedBadge(),
-                      ],
+              Row(
+                children: [
+                  Container(
+                    width: 48,
+                    height: 48,
+                    decoration: BoxDecoration(
+                      color: color.withOpacity(0.18),
+                      borderRadius:
+                          BorderRadius.circular(15),
                     ),
-                    const SizedBox(height: 10),
-                    Text(
-                      title,
-                      maxLines: 2,
+                    child: Icon(
+                      _categoryIcon(category),
+                      color: color,
+                      size: 26,
+                    ),
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Text(
+                      category.toUpperCase(),
+                      maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w800,
-                        height: 1.2,
-                        color: _SisonkeColors.textDark,
+                      style: TextStyle(
+                        color: color,
+                        fontSize: 12,
+                        letterSpacing: 1,
+                        fontWeight: FontWeight.w900,
                       ),
                     ),
-                    const SizedBox(height: 8),
-                    Text(
-                      description,
-                      maxLines: 3,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontSize: 14,
-                        height: 1.4,
-                        color: _SisonkeColors.textGrey,
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    Row(
-                      children: [
-                        const Icon(
-                          Icons.access_time,
-                          size: 15,
-                          color: _SisonkeColors.textGrey,
-                        ),
-                        const SizedBox(width: 5),
-                        Text(
-                          formatDate(postDate(post)),
-                          style: const TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
-                            color: _SisonkeColors.textGrey,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
+                  ),
+                  const Icon(
+                    Icons.verified_rounded,
+                    color: Color(0xFFFFC247),
+                    size: 20,
+                  ),
+                ],
+              ),
+              const SizedBox(height: 20),
+              Text(
+                title,
+                maxLines: 3,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 24,
+                  height: 1.18,
+                  fontWeight: FontWeight.w900,
                 ),
               ),
-              const SizedBox(width: 4),
-              const Icon(
-                Icons.chevron_right,
-                color: _SisonkeColors.textGrey,
+              const SizedBox(height: 14),
+              Text(
+                description,
+                maxLines: 4,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: Colors.white70,
+                  fontSize: 16,
+                  height: 1.5,
+                ),
+              ),
+              const SizedBox(height: 22),
+              const Divider(
+                color: Colors.white12,
+              ),
+              const SizedBox(height: 14),
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      source.isNotEmpty
+                          ? source
+                          : date,
+                      maxLines: 1,
+                      overflow:
+                          TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Colors.white54,
+                        fontSize: 13,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Text(
+                    date,
+                    style: const TextStyle(
+                      color: Colors.white54,
+                      fontSize: 12,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  const Icon(
+                    Icons.arrow_forward_rounded,
+                    color: Color(0xFFFFB41F),
+                    size: 20,
+                  ),
+                ],
               ),
             ],
           ),
@@ -774,264 +940,82 @@ class _InformationPostCard extends StatelessWidget {
       ),
     );
   }
-}
 
-class _CategoryBadge extends StatelessWidget {
-  final String label;
-  final Color color;
-
-  const _CategoryBadge({
-    required this.label,
-    required this.color,
-  });
-
-  @override
-  Widget build(BuildContext context) {
+  Widget _buildEmptyState() {
     return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: 10,
-        vertical: 5,
-      ),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.10),
-        borderRadius: BorderRadius.circular(20),
-      ),
-      child: Text(
-        label.toUpperCase(),
-        style: TextStyle(
-          fontSize: 10,
-          fontWeight: FontWeight.w800,
-          letterSpacing: 0.5,
-          color: color,
-        ),
-      ),
-    );
-  }
-}
-
-class _VerifiedBadge extends StatelessWidget {
-  const _VerifiedBadge();
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: 9,
-        vertical: 5,
-      ),
-      decoration: BoxDecoration(
-        color: _SisonkeColors.green.withValues(alpha: 0.10),
-        borderRadius: BorderRadius.circular(20),
-      ),
-      child: const Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(
-            Icons.verified,
-            size: 13,
-            color: _SisonkeColors.green,
-          ),
-          SizedBox(width: 4),
-          Text(
-            'VERIFIED',
-            style: TextStyle(
-              fontSize: 10,
-              fontWeight: FontWeight.w800,
-              color: _SisonkeColors.green,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _LoadingPosts extends StatelessWidget {
-  const _LoadingPosts();
-
-  @override
-  Widget build(BuildContext context) {
-    return const Padding(
-      padding: EdgeInsets.symmetric(vertical: 45),
-      child: Center(
-        child: Column(
-          children: [
-            CircularProgressIndicator(
-              color: _SisonkeColors.green,
-            ),
-            SizedBox(height: 18),
-            Text(
-              'Loading verified information...',
-              style: TextStyle(
-                fontSize: 15,
-                color: _SisonkeColors.textGrey,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _EmptyPosts extends StatelessWidget {
-  const _EmptyPosts();
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
       padding: const EdgeInsets.all(30),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(24),
+        borderRadius: BorderRadius.circular(28),
       ),
-      child: const Column(
+      child: Column(
         children: [
-          Icon(
-            Icons.newspaper_outlined,
+          const Icon(
+            Icons.forum_outlined,
             size: 52,
-            color: _SisonkeColors.green,
+            color: Color(0xFFFFB41F),
           ),
-          SizedBox(height: 16),
-          Text(
-            'The Information Hub is warming up.',
+          const SizedBox(height: 18),
+          const Text(
+            'Information is coming',
             textAlign: TextAlign.center,
             style: TextStyle(
-              fontSize: 19,
+              color: Color(0xFF1F232B),
+              fontSize: 22,
               fontWeight: FontWeight.w800,
-              color: _SisonkeColors.textDark,
             ),
           ),
-          SizedBox(height: 8),
-          Text(
-            'Verified community information will appear here as it is added.',
+          const SizedBox(height: 10),
+          const Text(
+            'Verified community information will appear here as soon as it is published.',
             textAlign: TextAlign.center,
             style: TextStyle(
-              fontSize: 14,
+              color: Color(0xFF6B7280),
+              fontSize: 15,
               height: 1.5,
-              color: _SisonkeColors.textGrey,
             ),
           ),
         ],
       ),
     );
   }
-}
 
-class _ErrorPosts extends StatelessWidget {
-  final String message;
-  final Future<void> Function() onRetry;
-
-  const _ErrorPosts({
-    required this.message,
-    required this.onRetry,
-  });
-
-  @override
-  Widget build(BuildContext context) {
+  Widget _buildErrorState() {
     return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(24),
+      padding: const EdgeInsets.all(28),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(24),
+        borderRadius: BorderRadius.circular(28),
       ),
       child: Column(
         children: [
           const Icon(
             Icons.cloud_off_outlined,
             size: 50,
-            color: _SisonkeColors.red,
-          ),
-          const SizedBox(height: 14),
-          const Text(
-            'Unable to load information',
-            style: TextStyle(
-              fontSize: 19,
-              fontWeight: FontWeight.w800,
-              color: _SisonkeColors.textDark,
-            ),
-          ),
-          const SizedBox(height: 8),
-          const Text(
-            'Please check your connection and try again.',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              fontSize: 14,
-              color: _SisonkeColors.textGrey,
-            ),
+            color: Color(0xFFE9322A),
           ),
           const SizedBox(height: 18),
-          OutlinedButton(
-            onPressed: onRetry,
-            child: const Text('TRY AGAIN'),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _CommunityInsightCard extends StatelessWidget {
-  const _CommunityInsightCard();
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(26),
-      decoration: BoxDecoration(
-        color: _SisonkeColors.black,
-        borderRadius: BorderRadius.circular(34),
-      ),
-      child: const Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'COMMUNITY INSIGHT',
+          const Text(
+            'Unable to load information',
+            textAlign: TextAlign.center,
             style: TextStyle(
+              color: Color(0xFF1F232B),
+              fontSize: 21,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 10),
+          const Text(
+            'Please check your connection and pull down to try again.',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: Color(0xFF6B7280),
               fontSize: 15,
-              fontWeight: FontWeight.w800,
-              letterSpacing: 1.2,
-              color: _SisonkeColors.gold,
-            ),
-          ),
-          SizedBox(height: 18),
-          Text(
-            'Information becomes powerful when it reaches the right people.',
-            style: TextStyle(
-              fontSize: 28,
-              height: 1.18,
-              fontWeight: FontWeight.w800,
-              color: Colors.white,
-            ),
-          ),
-          SizedBox(height: 22),
-          Text(
-            'Sisonke brings verified information, opportunities and community support together in one place.',
-            style: TextStyle(
-              fontSize: 17,
-              height: 1.55,
-              color: Color(0xFFD1D5DB),
+              height: 1.5,
             ),
           ),
         ],
       ),
     );
   }
-}
-
-class _SisonkeColors {
-  static const Color background = Color(0xFFF4F2ED);
-
-  static const Color textDark = Color(0xFF20242C);
-  static const Color textGrey = Color(0xFF69707C);
-
-  static const Color red = Color(0xFFE8342B);
-  static const Color green = Color(0xFF0D6A4A);
-  static const Color blue = Color(0xFF1E4F7A);
-  static const Color gold = Color(0xFFFFB21A);
-
-  static const Color black = Color(0xFF171717);
 }
