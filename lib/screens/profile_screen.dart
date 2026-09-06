@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
-import '../core/core.dart';
 
 class ProfileScreen extends StatelessWidget {
   const ProfileScreen({super.key});
+
+  static const Color _green = Color(0xFF1B7A4A);
+  static const Color _muted = Color(0xFF6B7280);
+  static const Color _border = Color(0xFFE5E7EB);
 
   @override
   Widget build(BuildContext context) {
@@ -14,6 +17,11 @@ class ProfileScreen extends StatelessWidget {
 
           // PROFILE HEADER
           Card(
+            elevation: 0,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+              side: const BorderSide(color: _border),
+            ),
             child: Padding(
               padding: const EdgeInsets.all(20),
               child: Column(
@@ -21,10 +29,10 @@ class ProfileScreen extends StatelessWidget {
                 children: [
                   Row(
                     children: [
-                      CircleAvatar(
+                      const CircleAvatar(
                         radius: 34,
-                        backgroundColor: SisonkeColors.green,
-                        child: const Text(
+                        backgroundColor: _green,
+                        child: Text(
                           'H',
                           style: TextStyle(
                             color: Colors.white,
@@ -40,35 +48,42 @@ class ProfileScreen extends StatelessWidget {
                           children: [
                             Text(
                               'Community Member',
-                              style: Theme.of(
-                                context,
-                              ).textTheme.titleLarge,
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .titleLarge
+                                  ?.copyWith(
+                                    fontWeight: FontWeight.w700,
+                                  ),
                             ),
                             const SizedBox(height: 4),
-                            Text(
+                            const Text(
                               'Johannesburg, Gauteng',
                               style: TextStyle(
-                                color: SisonkeColors.muted,
+                                color: _muted,
                               ),
                             ),
                           ],
                         ),
                       ),
                       IconButton(
-                        onPressed: () {},
+                        onPressed: () {
+                          _showComingSoon(
+                            context,
+                            'Profile editing will be available soon.',
+                          );
+                        },
                         icon: const Icon(Icons.edit_outlined),
                         tooltip: 'Edit profile',
                       ),
                     ],
                   ),
                   const SizedBox(height: 20),
-                  Divider(color: SisonkeColors.border),
-                  const SizedBox(height: 16),
-
-                  Text(
+                  const Divider(color: _border),
+                  const SizedBox(height: 12),
+                  const Text(
                     'Your Sisonke community profile',
                     style: TextStyle(
-                      color: SisonkeColors.muted,
+                      color: _muted,
                       fontSize: 14,
                     ),
                   ),
@@ -82,16 +97,19 @@ class ProfileScreen extends StatelessWidget {
           // IMPACT SECTION
           Text(
             'My Sisonke Impact',
-            style: Theme.of(context).textTheme.headlineSmall,
+            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
           ),
+
           const SizedBox(height: 14),
 
           GridView.count(
             crossAxisCount: 2,
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
-            crossAxisSpacing: 10,
-            mainAxisSpacing: 10,
+            crossAxisSpacing: 12,
+            mainAxisSpacing: 12,
             childAspectRatio: 1.45,
             children: const [
               _ImpactCard(
@@ -122,35 +140,52 @@ class ProfileScreen extends StatelessWidget {
           // ACCOUNT SECTION
           Text(
             'Account',
-            style: Theme.of(context).textTheme.headlineSmall,
+            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
           ),
+
           const SizedBox(height: 14),
 
           Card(
+            elevation: 0,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+              side: const BorderSide(color: _border),
+            ),
             child: Column(
               children: [
                 _ProfileOption(
                   icon: Icons.bookmark_border,
                   title: 'Saved content',
-                  onTap: () {},
+                  onTap: () {
+                    _showComingSoon(
+                      context,
+                      'Saved content will be available soon.',
+                    );
+                  },
                 ),
-                Divider(
-                  height: 1,
-                  color: SisonkeColors.border,
-                ),
+                const Divider(height: 1, color: _border),
                 _ProfileOption(
                   icon: Icons.settings_outlined,
                   title: 'Settings',
-                  onTap: () {},
+                  onTap: () {
+                    _showComingSoon(
+                      context,
+                      'Settings will be available soon.',
+                    );
+                  },
                 ),
-                Divider(
-                  height: 1,
-                  color: SisonkeColors.border,
-                ),
+                const Divider(height: 1, color: _border),
                 _ProfileOption(
                   icon: Icons.privacy_tip_outlined,
                   title: 'Privacy & safety',
-                  onTap: () {},
+                  onTap: () {
+                    _showComingSoon(
+                      context,
+                      'Privacy and safety settings will be available soon.',
+                    );
+                  },
                 ),
               ],
             ),
@@ -161,41 +196,58 @@ class ProfileScreen extends StatelessWidget {
           // COMMUNITY SECTION
           Text(
             'Community',
-            style: Theme.of(context).textTheme.headlineSmall,
+            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
           ),
+
           const SizedBox(height: 14),
 
           Card(
+            elevation: 0,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+              side: const BorderSide(color: _border),
+            ),
             child: Column(
               children: [
                 _ProfileOption(
                   icon: Icons.info_outline,
                   title: 'About Sisonke',
-                  onTap: () {},
+                  onTap: () {
+                    _showComingSoon(
+                      context,
+                      'About Sisonke will be available soon.',
+                    );
+                  },
                 ),
-                Divider(
-                  height: 1,
-                  color: SisonkeColors.border,
-                ),
+                const Divider(height: 1, color: _border),
                 _ProfileOption(
                   icon: Icons.help_outline,
                   title: 'Help & support',
-                  onTap: () {},
+                  onTap: () {
+                    _showComingSoon(
+                      context,
+                      'Help and support will be available soon.',
+                    );
+                  },
                 ),
-                Divider(
-                  height: 1,
-                  color: SisonkeColors.border,
-                ),
+                const Divider(height: 1, color: _border),
                 _ProfileOption(
                   icon: Icons.description_outlined,
                   title: 'Terms & policies',
-                  onTap: () {},
+                  onTap: () {
+                    _showComingSoon(
+                      context,
+                      'Terms and policies will be available soon.',
+                    );
+                  },
                 ),
               ],
             ),
           ),
 
-          const SizedBox(height: 32),
+          const SizedBox(height: 30),
 
           OutlinedButton.icon(
             onPressed: () {
@@ -205,15 +257,31 @@ class ProfileScreen extends StatelessWidget {
             label: const Text('Sign out'),
             style: OutlinedButton.styleFrom(
               foregroundColor: Colors.red,
-              padding: const EdgeInsets.symmetric(vertical: 16),
               side: const BorderSide(
                 color: Colors.red,
+              ),
+              padding: const EdgeInsets.symmetric(
+                vertical: 16,
+              ),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
               ),
             ),
           ),
 
           const SizedBox(height: 32),
         ],
+      ),
+    );
+  }
+
+  void _showComingSoon(
+    BuildContext context,
+    String message,
+  ) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
       ),
     );
   }
@@ -240,7 +308,9 @@ class ProfileScreen extends StatelessWidget {
 
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(
-                    content: Text('Sign out functionality coming soon.'),
+                    content: Text(
+                      'Sign out functionality will be connected soon.',
+                    ),
                   ),
                 );
               },
@@ -259,26 +329,36 @@ class ProfileScreen extends StatelessWidget {
 }
 
 class _ImpactCard extends StatelessWidget {
-  final String value;
-  final String label;
-  final IconData icon;
-
   const _ImpactCard({
     required this.value,
     required this.label,
     required this.icon,
   });
 
+  final String value;
+  final String label;
+  final IconData icon;
+
+  static const Color _green = Color(0xFF1B7A4A);
+  static const Color _muted = Color(0xFF6B7280);
+  static const Color _border = Color(0xFFE5E7EB);
+
   @override
   Widget build(BuildContext context) {
     return Card(
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: const BorderSide(color: _border),
+      ),
       child: Padding(
         padding: const EdgeInsets.all(14),
         child: Row(
           children: [
             Icon(
               icon,
-              color: SisonkeColors.green,
+              color: _green,
+              size: 25,
             ),
             const SizedBox(width: 10),
             Expanded(
@@ -290,17 +370,17 @@ class _ImpactCard extends StatelessWidget {
                     value,
                     style: const TextStyle(
                       fontSize: 24,
-                      fontWeight: FontWeight.w900,
-                      color: SisonkeColors.green,
+                      fontWeight: FontWeight.w800,
+                      color: _green,
                     ),
                   ),
-                  const SizedBox(height: 2),
+                  const SizedBox(height: 3),
                   Text(
                     label,
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: SisonkeColors.muted,
+                    style: const TextStyle(
+                      color: _muted,
                       fontSize: 12,
                     ),
                   ),
@@ -315,15 +395,17 @@ class _ImpactCard extends StatelessWidget {
 }
 
 class _ProfileOption extends StatelessWidget {
-  final IconData icon;
-  final String title;
-  final VoidCallback onTap;
-
   const _ProfileOption({
     required this.icon,
     required this.title,
     required this.onTap,
   });
+
+  final IconData icon;
+  final String title;
+  final VoidCallback onTap;
+
+  static const Color _green = Color(0xFF1B7A4A);
 
   @override
   Widget build(BuildContext context) {
@@ -331,9 +413,14 @@ class _ProfileOption extends StatelessWidget {
       onTap: onTap,
       leading: Icon(
         icon,
-        color: SisonkeColors.green,
+        color: _green,
       ),
-      title: Text(title),
+      title: Text(
+        title,
+        style: const TextStyle(
+          fontWeight: FontWeight.w500,
+        ),
+      ),
       trailing: const Icon(
         Icons.chevron_right,
       ),
