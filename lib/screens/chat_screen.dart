@@ -1,11 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+
 import '../data/chat_service.dart';
 import '../models/message.dart';
-class ChatScreen extends StatefulWidget { final String connectionId; final String title; const ChatScreen({super.key,required this.connectionId,required this.title}); @override State<ChatScreen> createState()=>_ChatScreenState(); }
-class _ChatScreenState extends State<ChatScreen>{ late final ChatService service; final controller=TextEditingController(); String? conversationId; bool loading=true;
- @override void initState(){super.initState(); service=ChatService(Supabase.instance.client); _load();}
- Future<void> _load() async { final id=await service.conversationForConnection(widget.connectionId); if(mounted)setState(()=>{conversationId=id,loading=false}); }
- @override void dispose(){controller.dispose();super.dispose();}
- @override Widget build(BuildContext context)=>Scaffold(appBar:AppBar(title:Text(widget.title)),body:loading?const Center(child:CircularProgressIndicator()):conversationId==null?const Center(child:Text('Conversation is not available yet.')):Column(children:[Expanded(child:StreamBuilder<List<SisonkeMessage>>(stream:service.watchMessages(conversationId!),builder:(c,s){if(s.hasError)return Center(child:Text('Unable to load messages: ${s.error}')); if(!s.hasData)return const Center(child:CircularProgressIndicator()); final me=service.userId; return ListView.builder(padding:const EdgeInsets.all(16),itemCount:s.data!.length,itemBuilder:(c,i){final m=s.data![i]; final mine=m.senderId==me; return Align(alignment:mine?Alignment.centerRight:Alignment.centerLeft,child:Container(margin:const EdgeInsets.only(bottom:8),padding:const EdgeInsets.all(12),decoration:BoxDecoration(color:mine?Theme.of(context).colorScheme.primaryContainer:Theme.of(context).colorScheme.surfaceContainerHighest,borderRadius:BorderRadius.circular(16)),child:Text(m.content)));}));}),SafeArea(child:Padding(padding:const EdgeInsets.all(12),child:Row(children:[Expanded(child:TextField(controller:controller,minLines:1,maxLines:4,decoration:const InputDecoration(hintText:'Write a message...'))),const SizedBox(width:8),IconButton.filled(onPressed:()=>service.send(conversationId!,controller.text).then((_)=>controller.clear()),icon:const Icon(Icons.send))]))])]);
-}
+
+class ChatScreen extends StatefulWidget {
