@@ -12,7 +12,7 @@ class AuthService {
     required String password,
     required String firstName,
   }) async {
-    final response = await _client.auth.signUp(
+    final response = await supabase.auth.signUp(
       email: email,
       password: password,
       data: {'first_name': firstName},
