@@ -1034,4 +1034,4 @@ class _SisonkeColors {
   static const Color gold = Color(0xFFFFB21A);
 
   static const Color black = Color(0xFF171717);
-} 
+}
