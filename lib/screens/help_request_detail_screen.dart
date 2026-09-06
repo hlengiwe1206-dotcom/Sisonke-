@@ -1,13 +1,11 @@
 import 'package:flutter/material.dart';
 
-import 'create_help_request_screen.dart';
-
 class HelpRequestDetailScreen extends StatefulWidget {
-  final Map<String, dynamic>? request;
+  final dynamic request;
 
   const HelpRequestDetailScreen({
     super.key,
-    this.request,
+    required this.request,
   });
 
   @override
@@ -15,417 +13,215 @@ class HelpRequestDetailScreen extends StatefulWidget {
       _HelpRequestDetailScreenState();
 }
 
-/// Compatibility class.
-///
-/// This allows older files that still use
-/// HelpRequestDetailsScreen
-/// to continue working while the app transitions
-/// to the singular HelpRequestDetailScreen name.
-class HelpRequestDetailsScreen extends HelpRequestDetailScreen {
-  const HelpRequestDetailsScreen({
-    super.key,
-    super.request,
-  });
-}
+class _HelpRequestDetailScreenState
+    extends State<HelpRequestDetailScreen> {
+  final _formKey = GlobalKey<FormState>();
 
-class _HelpRequestDetailScreenState extends State<HelpRequestDetailScreen> {
-  bool _wantToHelp = false;
-  bool _contactRequested = false;
+  final TextEditingController _messageController =
+      TextEditingController();
 
-  String _safeText(
-    dynamic value, {
-    String fallback = '',
-  }) {
-    if (value == null) return fallback;
+  String _selectedAvailability = 'Available immediately';
+  String _selectedContactMethod = 'Phone';
+
+  bool _isSubmitting = false;
+
+  @override
+  void dispose() {
+    _messageController.dispose();
+    super.dispose();
+  }
+
+  // ----------------------------------------------------------
+  // SAFE REQUEST VALUE READER
+  // Works with both Map data and object/model data.
+  // ----------------------------------------------------------
+
+  dynamic _getValue(String fieldName) {
+    final request = widget.request;
+
+    if (request is Map<String, dynamic>) {
+      return request[fieldName];
+    }
+
+    try {
+      switch (fieldName) {
+        case 'id':
+          return request.id;
+
+        case 'title':
+          return request.title;
+
+        case 'description':
+          return request.description;
+
+        case 'category':
+          return request.category;
+
+        case 'status':
+          return request.status;
+
+        case 'urgent':
+          return request.urgent;
+
+        case 'created_at':
+          return request.createdAt;
+
+        case 'createdAt':
+          return request.createdAt;
+
+        default:
+          return null;
+      }
+    } catch (_) {
+      return null;
+    }
+  }
+
+  String _safeText(String fieldName, [String fallback = 'Not provided']) {
+    final value = _getValue(fieldName);
+
+    if (value == null) {
+      return fallback;
+    }
 
     final text = value.toString().trim();
 
-    if (text.isEmpty) return fallback;
+    if (text.isEmpty || text == 'null') {
+      return fallback;
+    }
 
     return text;
   }
 
-  String _getTitle() {
-    final request = widget.request;
+  bool _safeBool(String fieldName) {
+    final value = _getValue(fieldName);
 
-    if (request == null) {
-      return 'Community Help Request';
+    if (value == null) {
+      return false;
     }
 
-    return _safeText(
-      request['title'],
-      fallback: _safeText(
-        request['name'],
-        fallback: 'Community Help Request',
-      ),
-    );
-  }
-
-  String _getDescription() {
-    final request = widget.request;
-
-    if (request == null) {
-      return 'No additional information has been provided yet.';
+    if (value is bool) {
+      return value;
     }
 
-    return _safeText(
-      request['description'],
-      fallback: _safeText(
-        request['details'],
-        fallback:
-            'No additional information has been provided yet.',
-      ),
-    );
+    return value.toString().toLowerCase() == 'true';
   }
 
-  String _getCategory() {
-    final request = widget.request;
+  String _formatDate() {
+    final value =
+        _getValue('created_at') ?? _getValue('createdAt');
 
-    if (request == null) {
-      return 'Community Support';
+    if (value == null) {
+      return 'Recently posted';
     }
 
-    return _safeText(
-      request['category'],
-      fallback: 'Community Support',
-    );
-  }
+    try {
+      DateTime date;
 
-  String _getLocation() {
-    final request = widget.request;
+      if (value is DateTime) {
+        date = value;
+      } else {
+        date = DateTime.parse(value.toString());
+      }
 
-    if (request == null) {
-      return 'Location not specified';
-    }
-
-    return _safeText(
-      request['location'],
-      fallback: _safeText(
-        request['city'],
-        fallback: 'Location not specified',
-      ),
-    );
-  }
-
-  String _getUrgency() {
-    final request = widget.request;
-
-    if (request == null) {
-      return 'Normal';
-    }
-
-    return _safeText(
-      request['urgency'],
-      fallback: 'Normal',
-    );
-  }
-
-  String _getRequesterName() {
-    final request = widget.request;
-
-    if (request == null) {
-      return 'Community Member';
-    }
-
-    return _safeText(
-      request['requester_name'],
-      fallback: _safeText(
-        request['name'],
-        fallback: 'Community Member',
-      ),
-    );
-  }
-
-  Color _urgencyColor(String urgency) {
-    switch (urgency.toLowerCase()) {
-      case 'urgent':
-        return Colors.red;
-      case 'low':
-        return Colors.green;
-      default:
-        return Colors.orange;
+      return
+          '${date.day.toString().padLeft(2, '0')}/'
+          '${date.month.toString().padLeft(2, '0')}/'
+          '${date.year}';
+    } catch (_) {
+      return 'Recently posted';
     }
   }
 
-  IconData _categoryIcon(String category) {
-    switch (category.toLowerCase()) {
-      case 'food & essentials':
-      case 'food':
-        return Icons.restaurant_outlined;
+  // ----------------------------------------------------------
+  // SUBMIT TEST RESPONSE
+  // ----------------------------------------------------------
 
-      case 'transport':
-        return Icons.directions_car_outlined;
-
-      case 'education':
-        return Icons.school_outlined;
-
-      case 'employment':
-      case 'jobs':
-        return Icons.work_outline;
-
-      case 'business support':
-      case 'business':
-        return Icons.business_outlined;
-
-      case 'health & wellness':
-      case 'health':
-        return Icons.favorite_outline;
-
-      default:
-        return Icons.volunteer_activism_outlined;
+  Future<void> _submitResponse() async {
+    if (!_formKey.currentState!.validate()) {
+      return;
     }
-  }
 
-  void _toggleHelp() {
     setState(() {
-      _wantToHelp = !_wantToHelp;
+      _isSubmitting = true;
     });
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          _wantToHelp
-              ? 'Thank you! You have indicated that you want to help.'
-              : 'You are no longer marked as helping.',
-        ),
-      ),
+    // Simulates processing.
+    await Future.delayed(
+      const Duration(seconds: 1),
     );
-  }
 
-  void _requestContact() {
+    if (!mounted) {
+      return;
+    }
+
     setState(() {
-      _contactRequested = true;
+      _isSubmitting = false;
     });
 
+    // For testing purposes, show captured information.
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
         content: Text(
-          'Contact request captured successfully.',
+          'Your response has been captured successfully.',
         ),
+        backgroundColor: Colors.green,
       ),
     );
-  }
 
-  void _createNewRequest() {
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => const CreateHelpRequestScreen(),
-      ),
+    await Future.delayed(
+      const Duration(milliseconds: 700),
     );
+
+    if (!mounted) {
+      return;
+    }
+
+    Navigator.pop(context);
   }
 
   @override
   Widget build(BuildContext context) {
-    final title = _getTitle();
-    final description = _getDescription();
-    final category = _getCategory();
-    final location = _getLocation();
-    final urgency = _getUrgency();
-    final requesterName = _getRequesterName();
+    final String title = _safeText('title', 'Help Request');
+
+    final String description =
+        _safeText('description', 'No description provided.');
+
+    final String category =
+        _safeText('category', 'General');
+
+    final String status =
+        _safeText('status', 'Open');
+
+    final bool urgent = _safeBool('urgent');
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF7F8FA),
+      backgroundColor: const Color(0xFFF6F7FB),
 
       appBar: AppBar(
-        title: const Text('Help Request'),
-        centerTitle: false,
+        elevation: 0,
+        backgroundColor: Colors.white,
+        foregroundColor: const Color(0xFF1F2937),
+        title: const Text(
+          'Request Details',
+          style: TextStyle(
+            fontWeight: FontWeight.bold,
+          ),
+        ),
       ),
 
       body: SafeArea(
         child: SingleChildScrollView(
-          padding: const EdgeInsets.all(20),
+          padding: const EdgeInsets.all(16),
 
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
 
             children: [
-              /// CATEGORY AND URGENCY
-              Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 8,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Colors.blue.shade50,
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          _categoryIcon(category),
-                          size: 18,
-                          color: Colors.blue.shade700,
-                        ),
+              // ------------------------------------------------
+              // REQUEST INFORMATION
+              // ------------------------------------------------
 
-                        const SizedBox(width: 6),
-
-                        Text(
-                          category,
-                          style: TextStyle(
-                            color: Colors.blue.shade800,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-
-                  const Spacer(),
-
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 8,
-                    ),
-                    decoration: BoxDecoration(
-                      color: _urgencyColor(urgency)
-                          .withOpacity(0.12),
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Text(
-                      urgency.toUpperCase(),
-                      style: TextStyle(
-                        color: _urgencyColor(urgency),
-                        fontSize: 12,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-
-              const SizedBox(height: 24),
-
-              /// TITLE
-              Text(
-                title,
-                style: const TextStyle(
-                  fontSize: 28,
-                  fontWeight: FontWeight.bold,
-                  height: 1.15,
-                ),
-              ),
-
-              const SizedBox(height: 20),
-
-              /// REQUESTER
-              Row(
-                children: [
-                  CircleAvatar(
-                    radius: 24,
-                    child: Text(
-                      requesterName.isNotEmpty
-                          ? requesterName.substring(0, 1).toUpperCase()
-                          : 'C',
-                    ),
-                  ),
-
-                  const SizedBox(width: 12),
-
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        'Requested by',
-                        style: TextStyle(
-                          color: Colors.grey,
-                          fontSize: 13,
-                        ),
-                      ),
-
-                      Text(
-                        requesterName,
-                        style: const TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-
-              const SizedBox(height: 24),
-
-              /// LOCATION
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(
-                    color: Colors.grey.shade200,
-                  ),
-                ),
-
-                child: Row(
-                  children: [
-                    Icon(
-                      Icons.location_on_outlined,
-                      color: Colors.red.shade400,
-                    ),
-
-                    const SizedBox(width: 12),
-
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment:
-                            CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            'Location',
-                            style: TextStyle(
-                              color: Colors.grey,
-                              fontSize: 13,
-                            ),
-                          ),
-
-                          const SizedBox(height: 3),
-
-                          Text(
-                            location,
-                            style: const TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-
-              const SizedBox(height: 28),
-
-              /// DESCRIPTION HEADING
-              const Text(
-                'About this request',
-                style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-
-              const SizedBox(height: 10),
-
-              /// DESCRIPTION
-              Text(
-                description,
-                style: TextStyle(
-                  fontSize: 16,
-                  color: Colors.grey.shade800,
-                  height: 1.6,
-                ),
-              ),
-
-              const SizedBox(height: 30),
-
-              /// COMMUNITY SUPPORT CARD
               Container(
                 width: double.infinity,
                 padding: const EdgeInsets.all(20),
@@ -433,9 +229,14 @@ class _HelpRequestDetailScreenState extends State<HelpRequestDetailScreen> {
                 decoration: BoxDecoration(
                   color: Colors.white,
                   borderRadius: BorderRadius.circular(20),
-                  border: Border.all(
-                    color: Colors.grey.shade200,
-                  ),
+
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withAlpha(15),
+                      blurRadius: 12,
+                      offset: const Offset(0, 5),
+                    ),
+                  ],
                 ),
 
                 child: Column(
@@ -443,156 +244,414 @@ class _HelpRequestDetailScreenState extends State<HelpRequestDetailScreen> {
                       CrossAxisAlignment.start,
 
                   children: [
-                    const Row(
+                    Row(
                       children: [
-                        Icon(
-                          Icons.volunteer_activism_outlined,
-                          size: 28,
+                        Expanded(
+                          child: Text(
+                            title,
+                            style: const TextStyle(
+                              fontSize: 24,
+                              fontWeight: FontWeight.bold,
+                              color: Color(0xFF1F2937),
+                            ),
+                          ),
                         ),
 
-                        SizedBox(width: 10),
+                        if (urgent)
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 6,
+                            ),
 
-                        Text(
-                          'Community Action',
-                          style: TextStyle(
-                            fontSize: 19,
-                            fontWeight: FontWeight.bold,
+                            decoration: BoxDecoration(
+                              color:
+                                  Colors.red.withAlpha(25),
+                              borderRadius:
+                                  BorderRadius.circular(20),
+                            ),
+
+                            child: const Text(
+                              'URGENT',
+                              style: TextStyle(
+                                color: Colors.red,
+                                fontWeight:
+                                    FontWeight.bold,
+                                fontSize: 11,
+                              ),
+                            ),
                           ),
+                      ],
+                    ),
+
+                    const SizedBox(height: 18),
+
+                    Wrap(
+                      spacing: 10,
+                      runSpacing: 10,
+
+                      children: [
+                        _buildInfoChip(
+                          icon: Icons.category_outlined,
+                          label: category,
+                        ),
+
+                        _buildInfoChip(
+                          icon: Icons.info_outline,
+                          label: status,
+                        ),
+
+                        _buildInfoChip(
+                          icon: Icons.calendar_today_outlined,
+                          label: _formatDate(),
                         ),
                       ],
                     ),
 
-                    const SizedBox(height: 10),
+                    const SizedBox(height: 22),
+
+                    const Text(
+                      'Description',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+
+                    const SizedBox(height: 8),
 
                     Text(
-                      'You can indicate that you want to assist '
-                      'with this request or request contact '
-                      'information.',
+                      description,
                       style: TextStyle(
-                        color: Colors.grey.shade700,
+                        fontSize: 15,
                         height: 1.5,
-                      ),
-                    ),
-
-                    const SizedBox(height: 20),
-
-                    SizedBox(
-                      width: double.infinity,
-                      height: 54,
-
-                      child: ElevatedButton.icon(
-                        onPressed: _toggleHelp,
-
-                        icon: Icon(
-                          _wantToHelp
-                              ? Icons.check_circle
-                              : Icons.volunteer_activism,
-                        ),
-
-                        label: Text(
-                          _wantToHelp
-                              ? 'You Offered to Help'
-                              : 'I Want to Help',
-                        ),
-
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: _wantToHelp
-                              ? Colors.green
-                              : null,
-
-                          shape: RoundedRectangleBorder(
-                            borderRadius:
-                                BorderRadius.circular(14),
-                          ),
-                        ),
-                      ),
-                    ),
-
-                    const SizedBox(height: 12),
-
-                    SizedBox(
-                      width: double.infinity,
-                      height: 54,
-
-                      child: OutlinedButton.icon(
-                        onPressed: _contactRequested
-                            ? null
-                            : _requestContact,
-
-                        icon: Icon(
-                          _contactRequested
-                              ? Icons.check_circle_outline
-                              : Icons.contact_phone_outlined,
-                        ),
-
-                        label: Text(
-                          _contactRequested
-                              ? 'Contact Request Sent'
-                              : 'Request Contact',
-                        ),
-
-                        style: OutlinedButton.styleFrom(
-                          shape: RoundedRectangleBorder(
-                            borderRadius:
-                                BorderRadius.circular(14),
-                          ),
-                        ),
+                        color: Colors.grey.shade700,
                       ),
                     ),
                   ],
                 ),
               ),
 
-              const SizedBox(height: 30),
+              const SizedBox(height: 24),
 
-              /// CREATE REQUEST
+              // ------------------------------------------------
+              // RESPONSE FORM
+              // ------------------------------------------------
+
               const Text(
-                'Need help yourself?',
+                'Respond to this request',
                 style: TextStyle(
-                  fontSize: 18,
+                  fontSize: 21,
                   fontWeight: FontWeight.bold,
+                  color: Color(0xFF1F2937),
                 ),
               ),
 
               const SizedBox(height: 8),
 
               Text(
-                'Create your own help request and share it '
-                'with the Sisonke community.',
+                'Tell the person how you can assist.',
                 style: TextStyle(
-                  color: Colors.grey.shade700,
-                  height: 1.5,
+                  color: Colors.grey.shade600,
                 ),
               ),
 
-              const SizedBox(height: 16),
+              const SizedBox(height: 18),
 
-              SizedBox(
-                width: double.infinity,
-                height: 54,
+              Form(
+                key: _formKey,
 
-                child: OutlinedButton.icon(
-                  onPressed: _createNewRequest,
+                child: Column(
+                  children: [
+                    // ----------------------------------------
+                    // MESSAGE
+                    // ----------------------------------------
 
-                  icon: const Icon(Icons.add_circle_outline),
+                    TextFormField(
+                      controller: _messageController,
 
-                  label: const Text(
-                    'Create Help Request',
-                  ),
+                      maxLines: 6,
 
-                  style: OutlinedButton.styleFrom(
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(14),
+                      validator: (value) {
+                        if (value == null ||
+                            value.trim().isEmpty) {
+                          return
+                              'Please enter a message.';
+                        }
+
+                        if (value.trim().length < 10) {
+                          return
+                              'Please provide a little more information.';
+                        }
+
+                        return null;
+                      },
+
+                      decoration: InputDecoration(
+                        labelText: 'How can you help?',
+                        hintText:
+                            'Explain how you can assist with this request...',
+
+                        alignLabelWithHint: true,
+
+                        border: OutlineInputBorder(
+                          borderRadius:
+                              BorderRadius.circular(14),
+                        ),
+
+                        enabledBorder:
+                            OutlineInputBorder(
+                          borderRadius:
+                              BorderRadius.circular(14),
+
+                          borderSide: BorderSide(
+                            color: Colors.grey.shade300,
+                          ),
+                        ),
+
+                        focusedBorder:
+                            OutlineInputBorder(
+                          borderRadius:
+                              BorderRadius.circular(14),
+
+                          borderSide: const BorderSide(
+                            color: Color(0xFFFFB300),
+                            width: 2,
+                          ),
+                        ),
+                      ),
                     ),
-                  ),
+
+                    const SizedBox(height: 22),
+
+                    // ----------------------------------------
+                    // AVAILABILITY
+                    // ----------------------------------------
+
+                    DropdownButtonFormField<String>(
+                      value: _selectedAvailability,
+
+                      decoration: InputDecoration(
+                        labelText: 'Availability',
+
+                        border: OutlineInputBorder(
+                          borderRadius:
+                              BorderRadius.circular(14),
+                        ),
+                      ),
+
+                      items: const [
+                        DropdownMenuItem(
+                          value:
+                              'Available immediately',
+
+                          child: Text(
+                            'Available immediately',
+                          ),
+                        ),
+
+                        DropdownMenuItem(
+                          value:
+                              'Available today',
+
+                          child:
+                              Text('Available today'),
+                        ),
+
+                        DropdownMenuItem(
+                          value:
+                              'Available this week',
+
+                          child: Text(
+                            'Available this week',
+                          ),
+                        ),
+
+                        DropdownMenuItem(
+                          value:
+                              'Available by arrangement',
+
+                          child: Text(
+                            'Available by arrangement',
+                          ),
+                        ),
+                      ],
+
+                      onChanged: (value) {
+                        if (value == null) {
+                          return;
+                        }
+
+                        setState(() {
+                          _selectedAvailability =
+                              value;
+                        });
+                      },
+                    ),
+
+                    const SizedBox(height: 20),
+
+                    // ----------------------------------------
+                    // CONTACT METHOD
+                    // ----------------------------------------
+
+                    DropdownButtonFormField<String>(
+                      value:
+                          _selectedContactMethod,
+
+                      decoration: InputDecoration(
+                        labelText:
+                            'Preferred contact method',
+
+                        border: OutlineInputBorder(
+                          borderRadius:
+                              BorderRadius.circular(14),
+                        ),
+                      ),
+
+                      items: const [
+                        DropdownMenuItem(
+                          value: 'Phone',
+                          child: Text('Phone'),
+                        ),
+
+                        DropdownMenuItem(
+                          value: 'WhatsApp',
+                          child: Text('WhatsApp'),
+                        ),
+
+                        DropdownMenuItem(
+                          value: 'Email',
+                          child: Text('Email'),
+                        ),
+
+                        DropdownMenuItem(
+                          value: 'In-app message',
+                          child: Text(
+                            'In-app message',
+                          ),
+                        ),
+                      ],
+
+                      onChanged: (value) {
+                        if (value == null) {
+                          return;
+                        }
+
+                        setState(() {
+                          _selectedContactMethod =
+                              value;
+                        });
+                      },
+                    ),
+
+                    const SizedBox(height: 30),
+
+                    // ----------------------------------------
+                    // SUBMIT BUTTON
+                    // ----------------------------------------
+
+                    SizedBox(
+                      width: double.infinity,
+                      height: 55,
+
+                      child: ElevatedButton(
+                        onPressed: _isSubmitting
+                            ? null
+                            : _submitResponse,
+
+                        style:
+                            ElevatedButton.styleFrom(
+                          backgroundColor:
+                              const Color(0xFFFFB300),
+
+                          foregroundColor:
+                              Colors.white,
+
+                          elevation: 0,
+
+                          shape:
+                              RoundedRectangleBorder(
+                            borderRadius:
+                                BorderRadius.circular(14),
+                          ),
+                        ),
+
+                        child: _isSubmitting
+                            ? const SizedBox(
+                                height: 24,
+                                width: 24,
+
+                                child:
+                                    CircularProgressIndicator(
+                                  strokeWidth: 3,
+                                  color: Colors.white,
+                                ),
+                              )
+
+                            : const Text(
+                                'Submit Response',
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight:
+                                      FontWeight.bold,
+                                ),
+                              ),
+                      ),
+                    ),
+
+                    const SizedBox(height: 30),
+                  ],
                 ),
               ),
-
-              const SizedBox(height: 40),
             ],
           ),
         ),
       ),
     );
   }
-} 
+
+  // ----------------------------------------------------------
+  // INFO CHIP
+  // ----------------------------------------------------------
+
+  Widget _buildInfoChip({
+    required IconData icon,
+    required String label,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: 10,
+        vertical: 8,
+      ),
+
+      decoration: BoxDecoration(
+        color: const Color(0xFFF3F4F6),
+        borderRadius: BorderRadius.circular(10),
+      ),
+
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+
+        children: [
+          Icon(
+            icon,
+            size: 16,
+            color: const Color(0xFF4B5563),
+          ),
+
+          const SizedBox(width: 6),
+
+          Text(
+            label,
+            style: const TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: Color(0xFF4B5563),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
