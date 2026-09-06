@@ -1,2 +1,52 @@
-- name: Run Flutter static analysis
-  run: flutter analyze --no-fatal-warnings --no-fatal-infos
+name: Stage 2 - Flutter Build Validation
+
+on:
+  push:
+    branches:
+      - main
+
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate-and-build-android:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: Show Flutter version
+        run: flutter --version
+
+      - name: Get Flutter dependencies
+        run: flutter pub get
+
+      - name: Run Flutter static analysis
+        run: flutter analyze --no-fatal-warnings --no-fatal-infos
+
+      - name: Generate Android platform
+        run: flutter create --platforms=android .
+
+      - name: Build debug APK
+        run: flutter build apk --debug
+
+      - name: Upload Sisonke debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Sisonke-Live-MVP-Debug-APK
+          path: build/app/outputs/flutter-apk/app-debug.apk
+          if-no-files-found: error
