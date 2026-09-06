@@ -7,8 +7,8 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   await Supabase.initialize(
-    url: 'YOUR_SUPABASE_PROJECT_URL',
-    anonKey: 'YOUR_SUPABASE_ANON_KEY',
+    url: 'PASTE_YOUR_SUPABASE_PROJECT_URL_HERE',
+    anonKey: 'PASTE_YOUR_SUPABASE_ANON_KEY_HERE',
   );
 
   runApp(const SisonkeApp());
