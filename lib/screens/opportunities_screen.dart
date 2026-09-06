@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 
 class OpportunitiesScreen extends StatefulWidget {
   const OpportunitiesScreen({super.key});
@@ -9,606 +8,958 @@ class OpportunitiesScreen extends StatefulWidget {
 }
 
 class _OpportunitiesScreenState extends State<OpportunitiesScreen> {
-  final SupabaseClient _supabase = Supabase.instance.client;
-
-  late Future<List<Map<String, dynamic>>> _opportunitiesFuture;
+  final TextEditingController _searchController = TextEditingController();
 
   String _selectedCategory = 'All';
+  String _searchQuery = '';
 
-  final List<String> _categories = [
+  final List<String> _categories = <String>[
     'All',
     'Jobs',
     'Tenders',
-    'Funding',
-    'Training',
     'Business',
-    'Education',
+    'Training',
+    'Community',
+  ];
+
+  final List<Map<String, dynamic>> _opportunities =
+      <Map<String, dynamic>>[
+    <String, dynamic>{
+      'title': 'Community Garden Coordinator',
+      'organisation': 'Johannesburg Community Initiative',
+      'category': 'Jobs',
+      'location': 'Johannesburg, Gauteng',
+      'type': 'Part-time',
+      'date': 'Closing soon',
+      'description':
+          'Coordinate local community garden activities, volunteers and neighbourhood participation.',
+      'requirements': <String>[
+        'Good communication skills',
+        'Experience working with communities',
+        'Interest in environmental projects',
+      ],
+      'icon': Icons.eco_outlined,
+      'featured': true,
+    },
+    <String, dynamic>{
+      'title': 'Small Business Support Programme',
+      'organisation': 'Enterprise Development Hub',
+      'category': 'Business',
+      'location': 'South Africa',
+      'type': 'Business Support',
+      'date': 'Open applications',
+      'description':
+          'A support programme designed to help emerging businesses access training, mentorship and business development opportunities.',
+      'requirements': <String>[
+        'Registered or emerging business',
+        'Valid contact information',
+        'Commitment to participate in the programme',
+      ],
+      'icon': Icons.business_center_outlined,
+      'featured': true,
+    },
+    <String, dynamic>{
+      'title': 'Digital Skills Training',
+      'organisation': 'Future Skills Academy',
+      'category': 'Training',
+      'location': 'Online',
+      'type': 'Training',
+      'date': 'Applications open',
+      'description':
+          'Develop practical digital skills including communication, online tools and workplace readiness.',
+      'requirements': <String>[
+        'Access to a smartphone or computer',
+        'Willingness to complete training',
+      ],
+      'icon': Icons.school_outlined,
+      'featured': false,
+    },
+    <String, dynamic>{
+      'title': 'Local Maintenance Tender',
+      'organisation': 'Municipal Opportunities Portal',
+      'category': 'Tenders',
+      'location': 'Gauteng',
+      'type': 'Tender',
+      'date': 'Closing in 14 days',
+      'description':
+          'Opportunity for qualifying service providers to participate in local maintenance and infrastructure support services.',
+      'requirements': <String>[
+        'Registered business',
+        'Relevant experience',
+        'Required compliance documentation',
+      ],
+      'icon': Icons.description_outlined,
+      'featured': true,
+    },
+    <String, dynamic>{
+      'title': 'Youth Employment Opportunity',
+      'organisation': 'Community Employment Network',
+      'category': 'Jobs',
+      'location': 'Soweto, Gauteng',
+      'type': 'Full-time',
+      'date': 'Closing in 7 days',
+      'description':
+          'Employment opportunity supporting local service delivery and community development initiatives.',
+      'requirements': <String>[
+        'South African identification document',
+        'Reliable contact number',
+        'Availability for interviews',
+      ],
+      'icon': Icons.work_outline,
+      'featured': false,
+    },
+    <String, dynamic>{
+      'title': 'Volunteer Community Project',
+      'organisation': 'Sisoke Community Network',
+      'category': 'Community',
+      'location': 'Johannesburg',
+      'type': 'Volunteer',
+      'date': 'Ongoing',
+      'description':
+          'Join a local community initiative and connect with people working to improve neighbourhoods and support residents.',
+      'requirements': <String>[
+        'Interest in community development',
+        'Willingness to participate',
+      ],
+      'icon': Icons.people_outline,
+      'featured': false,
+    },
   ];
 
   @override
   void initState() {
     super.initState();
-    _opportunitiesFuture = _loadOpportunities();
-  }
 
-  Future<List<Map<String, dynamic>>> _loadOpportunities() async {
-    try {
-      final List<dynamic> data = await _supabase
-          .from('opportunities')
-          .select()
-          .eq('is_published', true)
-          .order('created_at', ascending: false);
-
-      return data
-          .map((item) => Map<String, dynamic>.from(item as Map))
-          .toList();
-    } catch (error) {
-      throw Exception('Unable to load opportunities: $error');
-    }
-  }
-
-  Future<void> _refreshOpportunities() async {
-    setState(() {
-      _opportunitiesFuture = _loadOpportunities();
+    _searchController.addListener(() {
+      setState(() {
+        _searchQuery = _searchController.text.trim().toLowerCase();
+      });
     });
-
-    await _opportunitiesFuture;
   }
 
-  List<Map<String, dynamic>> _filterOpportunities(
-    List<Map<String, dynamic>> opportunities,
-  ) {
-    if (_selectedCategory == 'All') {
-      return opportunities;
-    }
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
 
-    return opportunities.where((opportunity) {
-      final category =
-          _safeText(opportunity['category']).trim().toLowerCase();
+  List<Map<String, dynamic>> get _filteredOpportunities {
+    return _opportunities.where((Map<String, dynamic> opportunity) {
+      final String category =
+          (opportunity['category'] ?? '').toString().toLowerCase();
 
-      return category == _selectedCategory.toLowerCase();
+      final String title =
+          (opportunity['title'] ?? '').toString().toLowerCase();
+
+      final String organisation =
+          (opportunity['organisation'] ?? '').toString().toLowerCase();
+
+      final String location =
+          (opportunity['location'] ?? '').toString().toLowerCase();
+
+      final bool categoryMatches =
+          _selectedCategory == 'All' ||
+          category == _selectedCategory.toLowerCase();
+
+      final bool searchMatches =
+          _searchQuery.isEmpty ||
+          title.contains(_searchQuery) ||
+          organisation.contains(_searchQuery) ||
+          location.contains(_searchQuery);
+
+      return categoryMatches && searchMatches;
     }).toList();
   }
 
-  String _safeText(
-    dynamic value, {
-    String fallback = '',
-  }) {
-    if (value == null) {
-      return fallback;
-    }
-
-    final text = value.toString().trim();
-
-    if (text.isEmpty) {
-      return fallback;
-    }
-
-    return text;
-  }
-
-  bool _safeBool(
-    dynamic value, {
-    bool fallback = false,
-  }) {
-    if (value == null) {
-      return fallback;
-    }
-
-    if (value is bool) {
-      return value;
-    }
-
-    return value.toString().toLowerCase() == 'true';
-  }
-
-  DateTime? _safeDate(dynamic value) {
-    if (value == null) {
-      return null;
-    }
-
-    try {
-      return DateTime.parse(value.toString());
-    } catch (_) {
-      return null;
-    }
-  }
-
-  String _formatDate(dynamic value) {
-    final date = _safeDate(value);
-
-    if (date == null) {
-      return '';
-    }
-
-    final months = [
-      'Jan',
-      'Feb',
-      'Mar',
-      'Apr',
-      'May',
-      'Jun',
-      'Jul',
-      'Aug',
-      'Sep',
-      'Oct',
-      'Nov',
-      'Dec',
-    ];
-
-    return '${date.day} ${months[date.month - 1]} ${date.year}';
-  }
-
-  String _formatRelativeDate(dynamic value) {
-    final date = _safeDate(value);
-
-    if (date == null) {
-      return 'Recently added';
-    }
-
-    final now = DateTime.now();
-    final difference = now.difference(date);
-
-    if (difference.inMinutes < 1) {
-      return 'Just now';
-    }
-
-    if (difference.inMinutes < 60) {
-      return '${difference.inMinutes} min ago';
-    }
-
-    if (difference.inHours < 24) {
-      return '${difference.inHours} hr ago';
-    }
-
-    if (difference.inDays == 1) {
-      return 'Yesterday';
-    }
-
-    if (difference.inDays < 7) {
-      return '${difference.inDays} days ago';
-    }
-
-    return _formatDate(date);
-  }
-
-  IconData _categoryIcon(String category) {
-    switch (category.toLowerCase()) {
-      case 'jobs':
-        return Icons.work_outline;
-
-      case 'tenders':
-        return Icons.description_outlined;
-
-      case 'funding':
-        return Icons.account_balance_outlined;
-
-      case 'training':
-        return Icons.school_outlined;
-
-      case 'business':
-        return Icons.business_center_outlined;
-
-      case 'education':
-        return Icons.menu_book_outlined;
-
-      default:
-        return Icons.campaign_outlined;
-    }
-  }
-
-  Color _categoryColor(String category) {
-    switch (category.toLowerCase()) {
-      case 'jobs':
-        return Colors.blue;
-
-      case 'tenders':
-        return Colors.deepPurple;
-
-      case 'funding':
-        return Colors.green;
-
-      case 'training':
-        return Colors.orange;
-
-      case 'business':
-        return Colors.indigo;
-
-      case 'education':
-        return Colors.teal;
-
-      default:
-        return Colors.grey;
-    }
-  }
-
   void _openOpportunity(Map<String, dynamic> opportunity) {
-    final title = _safeText(
-      opportunity['title'],
-      fallback: 'Opportunity',
-    );
-
-    final description = _safeText(
-      opportunity['description'],
-      fallback: 'No additional information is available.',
-    );
-
-    final category = _safeText(
-      opportunity['category'],
-      fallback: 'Opportunity',
-    );
-
-    final organisation = _safeText(
-      opportunity['organisation'] ??
-          opportunity['organization'] ??
-          opportunity['company'] ??
-          opportunity['provider'],
-    );
-
-    final location = _safeText(opportunity['location']);
-
-    final deadline = _formatDate(
-      opportunity['closing_date'] ??
-          opportunity['deadline'] ??
-          opportunity['application_deadline'],
-    );
-
-    final briefingDate = _formatDate(
-      opportunity['briefing_date'],
-    );
-
-    final briefingRequired = _safeBool(
-      opportunity['briefing_required'],
-    );
-
-    final link = _safeText(
-      opportunity['link'] ??
-          opportunity['url'] ??
-          opportunity['application_link'],
-    );
-
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (context) {
-        return DraggableScrollableSheet(
-          initialChildSize: 0.72,
-          minChildSize: 0.45,
-          maxChildSize: 0.92,
-          builder: (context, scrollController) {
-            return Container(
-              decoration: const BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.vertical(
-                  top: Radius.circular(28),
-                ),
-              ),
-              child: Column(
-                children: [
-                  const SizedBox(height: 12),
-                  Container(
-                    width: 42,
-                    height: 5,
-                    decoration: BoxDecoration(
-                      color: Colors.grey.shade300,
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                  ),
-                  Expanded(
-                    child: ListView(
-                      controller: scrollController,
-                      padding: const EdgeInsets.all(24),
-                      children: [
-                        Row(
-                          children: [
-                            Container(
-                              padding: const EdgeInsets.all(12),
-                              decoration: BoxDecoration(
-                                color: _categoryColor(category)
-                                    .withOpacity(0.12),
-                                borderRadius: BorderRadius.circular(14),
-                              ),
-                              child: Icon(
-                                _categoryIcon(category),
-                                color: _categoryColor(category),
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Text(
-                                category,
-                                style: TextStyle(
-                                  color: _categoryColor(category),
-                                  fontWeight: FontWeight.w700,
-                                  fontSize: 14,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 20),
-                        Text(
-                          title,
-                          style: const TextStyle(
-                            fontSize: 25,
-                            fontWeight: FontWeight.w800,
-                            height: 1.2,
-                          ),
-                        ),
-                        if (organisation.isNotEmpty) ...[
-                          const SizedBox(height: 10),
-                          Row(
-                            children: [
-                              const Icon(
-                                Icons.business_outlined,
-                                size: 18,
-                                color: Colors.grey,
-                              ),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: Text(
-                                  organisation,
-                                  style: const TextStyle(
-                                    fontSize: 15,
-                                    color: Colors.grey,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
-                        if (location.isNotEmpty) ...[
-                          const SizedBox(height: 8),
-                          Row(
-                            children: [
-                              const Icon(
-                                Icons.location_on_outlined,
-                                size: 18,
-                                color: Colors.grey,
-                              ),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: Text(
-                                  location,
-                                  style: const TextStyle(
-                                    fontSize: 15,
-                                    color: Colors.grey,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
-                        const SizedBox(height: 24),
-                        const Text(
-                          'About this opportunity',
-                          style: TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.w800,
-                          ),
-                        ),
-                        const SizedBox(height: 10),
-                        Text(
-                          description,
-                          style: const TextStyle(
-                            fontSize: 16,
-                            height: 1.55,
-                            color: Color(0xFF4B5563),
-                          ),
-                        ),
-                        if (deadline.isNotEmpty) ...[
-                          const SizedBox(height: 24),
-                          _detailTile(
-                            icon: Icons.event_outlined,
-                            title: 'Closing date',
-                            value: deadline,
-                            color: Colors.redAccent,
-                          ),
-                        ],
-                        if (briefingRequired) ...[
-                          const SizedBox(height: 12),
-                          _detailTile(
-                            icon: Icons.groups_outlined,
-                            title: 'Briefing',
-                            value: briefingDate.isNotEmpty
-                                ? 'Required • $briefingDate'
-                                : 'Briefing required',
-                            color: Colors.orange,
-                          ),
-                        ],
-                        if (link.isNotEmpty) ...[
-                          const SizedBox(height: 24),
-                          SizedBox(
-                            width: double.infinity,
-                            child: ElevatedButton.icon(
-                              onPressed: () {
-                                Navigator.pop(context);
-
-                                ScaffoldMessenger.of(this.context)
-                                    .showSnackBar(
-                                  const SnackBar(
-                                    content: Text(
-                                      'Application link is available in the opportunity record.',
-                                    ),
-                                  ),
-                                );
-                              },
-                              icon: const Icon(Icons.open_in_new),
-                              label: const Text(
-                                'View Application Details',
-                              ),
-                              style: ElevatedButton.styleFrom(
-                                padding: const EdgeInsets.symmetric(
-                                  vertical: 16,
-                                ),
-                                backgroundColor: const Color(0xFF0F766E),
-                                foregroundColor: Colors.white,
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(14),
-                                ),
-                              ),
-                            ),
-                          ),
-                        ],
-                        const SizedBox(height: 20),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            );
-          },
-        );
-      },
-    );
-  }
-
-  Widget _detailTile({
-    required IconData icon,
-    required String title,
-    required String value,
-    required Color color,
-  }) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.07),
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Row(
-        children: [
-          Icon(
-            icon,
-            color: color,
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: const TextStyle(
-                    fontSize: 12,
-                    color: Colors.grey,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                const SizedBox(height: 3),
-                Text(
-                  value,
-                  style: const TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (BuildContext context) {
+          return OpportunityDetailScreen(opportunity: opportunity);
+        },
       ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
+    final List<Map<String, dynamic>> opportunities =
+        _filteredOpportunities;
+
     return Scaffold(
-      backgroundColor: const Color(0xFFF7F8FA),
       appBar: AppBar(
-        elevation: 0,
-        backgroundColor: Colors.white,
-        foregroundColor: const Color(0xFF111827),
-        title: const Text(
-          'Opportunities',
-          style: TextStyle(
-            fontWeight: FontWeight.w800,
-          ),
-        ),
+        title: const Text('Opportunities'),
+        centerTitle: false,
       ),
-      body: FutureBuilder<List<Map<String, dynamic>>>(
-        future: _opportunitiesFuture,
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(
-              child: CircularProgressIndicator(),
-            );
-          }
-
-          if (snapshot.hasError) {
-            return _buildErrorState(
-              snapshot.error.toString(),
-            );
-          }
-
-          final opportunities = snapshot.data ?? [];
-
-          final filteredOpportunities =
-              _filterOpportunities(opportunities);
-
-          return RefreshIndicator(
-            onRefresh: _refreshOpportunities,
-            child: Column(
-              children: [
-                _buildHeader(
-                  opportunities.length,
-                ),
-                _buildCategories(),
-                Expanded(
-                  child: filteredOpportunities.isEmpty
-                      ? _buildEmptyState()
-                      : ListView.builder(
-                          physics:
-                              const AlwaysScrollableScrollPhysics(),
-                          padding: const EdgeInsets.fromLTRB(
-                            16,
-                            8,
-                            16,
-                            24,
-                          ),
-                          itemCount: filteredOpportunities.length,
-                          itemBuilder: (context, index) {
-                            return _buildOpportunityCard(
-                              filteredOpportunities[index],
-                            );
+      body: SafeArea(
+        child: Column(
+          children: <Widget>[
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 10),
+              child: TextField(
+                controller: _searchController,
+                decoration: InputDecoration(
+                  hintText: 'Search opportunities',
+                  prefixIcon: const Icon(Icons.search),
+                  suffixIcon: _searchQuery.isNotEmpty
+                      ? IconButton(
+                          icon: const Icon(Icons.clear),
+                          onPressed: () {
+                            _searchController.clear();
                           },
-                        ),
+                        )
+                      : null,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(16),
+                  ),
                 ),
-              ],
+              ),
             ),
-          );
-        },
+
+            SizedBox(
+              height: 48,
+              child: ListView.separated(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16),
+                scrollDirection: Axis.horizontal,
+                itemCount: _categories.length,
+                separatorBuilder:
+                    (BuildContext context, int index) {
+                  return const SizedBox(width: 8);
+                },
+                itemBuilder:
+                    (BuildContext context, int index) {
+                  final String category = _categories[index];
+
+                  return ChoiceChip(
+                    label: Text(category),
+                    selected:
+                        _selectedCategory == category,
+                    onSelected: (bool selected) {
+                      if (!selected) {
+                        return;
+                      }
+
+                      setState(() {
+                        _selectedCategory = category;
+                      });
+                    },
+                  );
+                },
+              ),
+            ),
+
+            const SizedBox(height: 8),
+
+            Expanded(
+              child: opportunities.isEmpty
+                  ? _buildEmptyState()
+                  : RefreshIndicator(
+                      onRefresh: () async {
+                        await Future<void>.delayed(
+                          const Duration(milliseconds: 500),
+                        );
+
+                        if (!mounted) {
+                          return;
+                        }
+
+                        setState(() {});
+                      },
+                      child: ListView(
+                        padding:
+                            const EdgeInsets.fromLTRB(
+                          16,
+                          8,
+                          16,
+                          24,
+                        ),
+                        children: <Widget>[
+                          Text(
+                            '${opportunities.length} opportunities available',
+                            style: Theme.of(context)
+                                .textTheme
+                                .titleMedium,
+                          ),
+
+                          const SizedBox(height: 12),
+
+                          ...opportunities.map(
+                            (Map<String, dynamic>
+                                    opportunity) =>
+                                Padding(
+                              padding:
+                                  const EdgeInsets.only(
+                                bottom: 12,
+                              ),
+                              child:
+                                  _OpportunityCard(
+                                opportunity:
+                                    opportunity,
+                                onTap: () {
+                                  _openOpportunity(
+                                    opportunity,
+                                  );
+                                },
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+            ),
+          ],
+        ),
       ),
     );
   }
 
-  Widget _buildHeader(int totalOpportunities) {
-    return Container(
-      width: double.infinity,
-      color: Colors.white,
-      padding: const EdgeInsets.fromLTRB(
-        20,
-        8,
-        20,
-        18,
+  Widget _buildEmptyState() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisAlignment:
+              MainAxisAlignment.center,
+          children: <Widget>[
+            Icon(
+              Icons.search_off_outlined,
+              size: 64,
+              color: Colors.grey.shade500,
+            ),
+            const SizedBox(height: 16),
+            const Text(
+              'No opportunities found',
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'Try changing your search or selecting another category.',
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 20),
+            OutlinedButton(
+              onPressed: () {
+                setState(() {
+                  _selectedCategory = 'All';
+                  _searchController.clear();
+                });
+              },
+              child: const Text('Clear filters'),
+            ),
+          ],
+        ),
       ),
+    );
+  }
+}
+
+class _OpportunityCard extends StatelessWidget {
+  const _OpportunityCard({
+    required this.opportunity,
+    required this.onTap,
+  });
+
+  final Map<String, dynamic> opportunity;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final IconData icon =
+        opportunity['icon'] as IconData? ??
+            Icons.work_outline;
+
+    final bool featured =
+        opportunity['featured'] == true;
+
+    return Card(
+      elevation: 0,
+      clipBehavior: Clip.antiAlias,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(18),
+        side: BorderSide(
+          color: Colors.grey.shade300,
+        ),
+      ),
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment:
+                CrossAxisAlignment.start,
+            children: <Widget>[
+              Row(
+                crossAxisAlignment:
+                    CrossAxisAlignment.start,
+                children: <Widget>[
+                  Container(
+                    width: 48,
+                    height: 48,
+                    decoration: BoxDecoration(
+                      color:
+                          Theme.of(context)
+                              .colorScheme
+                              .primaryContainer,
+                      borderRadius:
+                          BorderRadius.circular(14),
+                    ),
+                    child: Icon(
+                      icon,
+                      color:
+                          Theme.of(context)
+                              .colorScheme
+                              .primary,
+                    ),
+                  ),
+
+                  const SizedBox(width: 12),
+
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment:
+                          CrossAxisAlignment.start,
+                      children: <Widget>[
+                        Row(
+                          children: <Widget>[
+                            Expanded(
+                              child: Text(
+                                opportunity['title']
+                                    .toString(),
+                                style: const TextStyle(
+                                  fontSize: 17,
+                                  fontWeight:
+                                      FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                            if (featured)
+                              const Icon(
+                                Icons.star,
+                                color: Colors.amber,
+                                size: 20,
+                              ),
+                          ],
+                        ),
+
+                        const SizedBox(height: 4),
+
+                        Text(
+                          opportunity['organisation']
+                              .toString(),
+                          style: TextStyle(
+                            color:
+                                Colors.grey.shade600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+
+              const SizedBox(height: 14),
+
+              Text(
+                opportunity['description'].toString(),
+                maxLines: 2,
+                overflow:
+                    TextOverflow.ellipsis,
+              ),
+
+              const SizedBox(height: 14),
+
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: <Widget>[
+                  _InfoChip(
+                    icon: Icons.category_outlined,
+                    label: opportunity['category']
+                        .toString(),
+                  ),
+                  _InfoChip(
+                    icon:
+                        Icons.location_on_outlined,
+                    label: opportunity['location']
+                        .toString(),
+                  ),
+                ],
+              ),
+
+              const SizedBox(height: 14),
+
+              Row(
+                children: <Widget>[
+                  Expanded(
+                    child: Text(
+                      opportunity['date'].toString(),
+                      style: TextStyle(
+                        color:
+                            Theme.of(context)
+                                .colorScheme
+                                .primary,
+                        fontWeight:
+                            FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                  const Icon(
+                    Icons.arrow_forward_ios,
+                    size: 16,
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _InfoChip extends StatelessWidget {
+  const _InfoChip({
+    required this.icon,
+    required this.label,
+  });
+
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding:
+          const EdgeInsets.symmetric(
+        horizontal: 10,
+        vertical: 7,
+      ),
+      decoration: BoxDecoration(
+        color: Colors.grey.shade100,
+        borderRadius:
+            BorderRadius.circular(20),
+      ),
+      child: Row(
+        mainAxisSize:
+            MainAxisSize.min,
+        children: <Widget>[
+          Icon(
+            icon,
+            size: 15,
+          ),
+          const SizedBox(width: 5),
+          Text(
+            label,
+            style:
+                const TextStyle(fontSize: 12),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class OpportunityDetailScreen extends StatefulWidget {
+  const OpportunityDetailScreen({
+    super.key,
+    required this.opportunity,
+  });
+
+  final Map<String, dynamic> opportunity;
+
+  @override
+  State<OpportunityDetailScreen>
+      createState() =>
+          _OpportunityDetailScreenState();
+}
+
+class _OpportunityDetailScreenState
+    extends State<OpportunityDetailScreen> {
+  final GlobalKey<FormState> _formKey =
+      GlobalKey<FormState>();
+
+  final TextEditingController _nameController =
+      TextEditingController();
+
+  final TextEditingController _emailController =
+      TextEditingController();
+
+  final TextEditingController _phoneController =
+      TextEditingController();
+
+  final TextEditingController _messageController =
+      TextEditingController();
+
+  bool _showInterestForm = false;
+  bool _submitted = false;
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _emailController.dispose();
+    _phoneController.dispose();
+    _messageController.dispose();
+    super.dispose();
+  }
+
+  void _submitInterest() {
+    if (!_formKey.currentState!.validate()) {
+      return;
+    }
+
+    setState(() {
+      _submitted = true;
+    });
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text(
+          'Your interest has been submitted successfully.',
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final Map<String, dynamic> opportunity =
+        widget.opportunity;
+
+    final IconData icon =
+        opportunity['icon'] as IconData? ??
+            Icons.work_outline;
+
+    final List<dynamic> requirements =
+        opportunity['requirements'] as List<dynamic>? ??
+            <dynamic>[];
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Opportunity Details'),
+      ),
+      body: SafeArea(
+        child: ListView(
+          padding: const EdgeInsets.all(20),
+          children: <Widget>[
+            Container(
+              width: 64,
+              height: 64,
+              decoration: BoxDecoration(
+                color:
+                    Theme.of(context)
+                        .colorScheme
+                        .primaryContainer,
+                borderRadius:
+                    BorderRadius.circular(18),
+              ),
+              child: Icon(
+                icon,
+                size: 32,
+                color:
+                    Theme.of(context)
+                        .colorScheme
+                        .primary,
+              ),
+            ),
+
+            const SizedBox(height: 20),
+
+            Text(
+              opportunity['title'].toString(),
+              style: Theme.of(context)
+                  .textTheme
+                  .headlineSmall
+                  ?.copyWith(
+                    fontWeight:
+                        FontWeight.w800,
+                  ),
+            ),
+
+            const SizedBox(height: 8),
+
+            Text(
+              opportunity['organisation'].toString(),
+              style: Theme.of(context)
+                  .textTheme
+                  .titleMedium
+                  ?.copyWith(
+                    color: Colors.grey.shade600,
+                  ),
+            ),
+
+            const SizedBox(height: 20),
+
+            _DetailRow(
+              icon: Icons.category_outlined,
+              label: 'Category',
+              value:
+                  opportunity['category'].toString(),
+            ),
+
+            _DetailRow(
+              icon: Icons.location_on_outlined,
+              label: 'Location',
+              value:
+                  opportunity['location'].toString(),
+            ),
+
+            _DetailRow(
+              icon: Icons.work_outline,
+              label: 'Type',
+              value: opportunity['type'].toString(),
+            ),
+
+            _DetailRow(
+              icon: Icons.calendar_today_outlined,
+              label: 'Status',
+              value: opportunity['date'].toString(),
+            ),
+
+            const SizedBox(height: 24),
+
+            Text(
+              'About this opportunity',
+              style: Theme.of(context)
+                  .textTheme
+                  .titleLarge
+                  ?.copyWith(
+                    fontWeight:
+                        FontWeight.w700,
+                  ),
+            ),
+
+            const SizedBox(height: 10),
+
+            Text(
+              opportunity['description'].toString(),
+              style: const TextStyle(
+                fontSize: 16,
+                height: 1.5,
+              ),
+            ),
+
+            const SizedBox(height: 24),
+
+            Text(
+              'Requirements',
+              style: Theme.of(context)
+                  .textTheme
+                  .titleLarge
+                  ?.copyWith(
+                    fontWeight:
+                        FontWeight.w700,
+                  ),
+            ),
+
+            const SizedBox(height: 10),
+
+            ...requirements.map(
+              (dynamic requirement) {
+                return Padding(
+                  padding:
+                      const EdgeInsets.only(
+                    bottom: 10,
+                  ),
+                  child: Row(
+                    crossAxisAlignment:
+                        CrossAxisAlignment.start,
+                    children: <Widget>[
+                      Icon(
+                        Icons.check_circle,
+                        size: 20,
+                        color:
+                            Theme.of(context)
+                                .colorScheme
+                                .primary,
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          requirement.toString(),
+                          style:
+                              const TextStyle(
+                            fontSize: 15,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
+
+            const SizedBox(height: 28),
+
+            if (_submitted)
+              _buildSuccessCard()
+            else if (_showInterestForm)
+              _buildInterestForm()
+            else
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  onPressed: () {
+                    setState(() {
+                      _showInterestForm = true;
+                    });
+                  },
+                  icon:
+                      const Icon(Icons.send_outlined),
+                  label:
+                      const Text('I am interested'),
+                  style: FilledButton.styleFrom(
+                    padding:
+                        const EdgeInsets.symmetric(
+                      vertical: 16,
+                    ),
+                  ),
+                ),
+              ),
+
+            const SizedBox(height: 30),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildInterestForm() {
+    return Form(
+      key: _formKey,
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
+        crossAxisAlignment:
+            CrossAxisAlignment.start,
+        children: <Widget>[
+          Text(
+            'Tell us about yourself',
+            style: Theme.of(context)
+                .textTheme
+                .titleLarge
+                ?.copyWith(
+                  fontWeight:
+                      FontWeight.w700,
+                ),
+          ),
+
+          const SizedBox(height: 8),
+
           const Text(
-            'Discover opportunities',
-            style: TextStyle(
-              fontSize: 24,
-              fontWeight: FontWeight.w800,
-              color: Color(0xFF111827),
+            'Complete the information below to test the opportunity interest and information input process.',
+          ),
+
+          const SizedBox(height: 20),
+
+          TextFormField(
+            controller: _nameController,
+            decoration: const InputDecoration(
+              labelText: 'Full name',
+              prefixIcon:
+                  Icon(Icons.person_outline),
+              border: OutlineInputBorder(),
+            ),
+            validator: (String? value) {
+              if (value == null ||
+                  value.trim().isEmpty) {
+                return 'Please enter your name';
+              }
+
+              return null;
+            },
+          ),
+
+          const SizedBox(height: 16),
+
+          TextFormField(
+            controller: _emailController,
+            keyboardType:
+                TextInputType.emailAddress,
+            decoration: const InputDecoration(
+              labelText: 'Email address',
+              prefixIcon:
+                  Icon(Icons.email_outlined),
+              border: OutlineInputBorder(),
+            ),
+            validator: (String? value) {
+              if (value == null ||
+                  value.trim().isEmpty) {
+                return 'Please enter your email';
+              }
+
+              if (!value.contains('@')) {
+                return 'Enter a valid email address';
+              }
+
+              return null;
+            },
+          ),
+
+          const SizedBox(height: 16),
+
+          TextFormField(
+            controller: _phoneController,
+            keyboardType:
+                TextInputType.phone,
+            decoration: const InputDecoration(
+              labelText: 'Phone number',
+              prefixIcon:
+                  Icon(Icons.phone_outlined),
+              border: OutlineInputBorder(),
+            ),
+            validator: (String? value) {
+              if (value == null ||
+                  value.trim().isEmpty) {
+                return 'Please enter your phone number';
+              }
+
+              return null;
+            },
+          ),
+
+          const SizedBox(height: 16),
+
+          TextFormField(
+            controller: _messageController,
+            maxLines: 5,
+            decoration: const InputDecoration(
+              labelText:
+                  'Why are you interested?',
+              alignLabelWithHint: true,
+              border: OutlineInputBorder(),
             ),
           ),
-          const SizedBox(height: 6),
-          Text(
-            '$totalOpportunities opportunities available for you',
-            style: const TextStyle(
-              fontSize: 14,
-              color: Color(0xFF6B7280),
+
+          const SizedBox(height: 20),
+
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton(
+              onPressed: _submitInterest,
+              style: FilledButton.styleFrom(
+                padding:
+                    const EdgeInsets.symmetric(
+                  vertical: 16,
+                ),
+              ),
+              child:
+                  const Text('Submit interest'),
+            ),
+          ),
+
+          const SizedBox(height: 10),
+
+          SizedBox(
+            width: double.infinity,
+            child: TextButton(
+              onPressed: () {
+                setState(() {
+                  _showInterestForm = false;
+                });
+              },
+              child: const Text('Cancel'),
             ),
           ),
         ],
@@ -616,315 +967,110 @@ class _OpportunitiesScreenState extends State<OpportunitiesScreen> {
     );
   }
 
-  Widget _buildCategories() {
-    return Container(
-      height: 64,
-      color: Colors.white,
-      child: ListView.separated(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(
-          horizontal: 16,
-          vertical: 12,
+  Widget _buildSuccessCard() {
+    return Card(
+      color:
+          Theme.of(context)
+              .colorScheme
+              .primaryContainer,
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          children: <Widget>[
+            Icon(
+              Icons.check_circle,
+              size: 64,
+              color:
+                  Theme.of(context)
+                      .colorScheme
+                      .primary,
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'Interest submitted!',
+              style: Theme.of(context)
+                  .textTheme
+                  .titleLarge
+                  ?.copyWith(
+                    fontWeight:
+                        FontWeight.w800,
+                  ),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'Your information has been captured successfully for this test flow.',
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 20),
+            OutlinedButton(
+              onPressed: () {
+                setState(() {
+                  _submitted = false;
+                  _showInterestForm = true;
+                });
+              },
+              child:
+                  const Text('Edit information'),
+            ),
+          ],
         ),
-        itemCount: _categories.length,
-        separatorBuilder: (_, __) {
-          return const SizedBox(width: 8);
-        },
-        itemBuilder: (context, index) {
-          final category = _categories[index];
-
-          final isSelected =
-              category == _selectedCategory;
-
-          return ChoiceChip(
-            label: Text(category),
-            selected: isSelected,
-            onSelected: (_) {
-              setState(() {
-                _selectedCategory = category;
-              });
-            },
-            selectedColor: const Color(0xFF0F766E),
-            backgroundColor: const Color(0xFFF3F4F6),
-            labelStyle: TextStyle(
-              color: isSelected
-                  ? Colors.white
-                  : const Color(0xFF374151),
-              fontWeight: FontWeight.w600,
-            ),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(20),
-              side: BorderSide.none,
-            ),
-          );
-        },
       ),
     );
   }
+}
 
-  Widget _buildOpportunityCard(
-    Map<String, dynamic> opportunity,
-  ) {
-    final title = _safeText(
-      opportunity['title'],
-      fallback: 'Untitled opportunity',
-    );
+class _DetailRow extends StatelessWidget {
+  const _DetailRow({
+    required this.icon,
+    required this.label,
+    required this.value,
+  });
 
-    final description = _safeText(
-      opportunity['description'],
-      fallback: 'Tap to view more information.',
-    );
+  final IconData icon;
+  final String label;
+  final String value;
 
-    final category = _safeText(
-      opportunity['category'],
-      fallback: 'Opportunity',
-    );
-
-    final organisation = _safeText(
-      opportunity['organisation'] ??
-          opportunity['organization'] ??
-          opportunity['company'] ??
-          opportunity['provider'],
-    );
-
-    final deadline = _formatDate(
-      opportunity['closing_date'] ??
-          opportunity['deadline'] ??
-          opportunity['application_deadline'],
-    );
-
-    final createdAt = _formatRelativeDate(
-      opportunity['published_at'] ??
-          opportunity['created_at'],
-    );
-
-    final color = _categoryColor(category);
-
+  @override
+  Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: Material(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        child: InkWell(
-          borderRadius: BorderRadius.circular(20),
-          onTap: () {
-            _openOpportunity(opportunity);
-          },
-          child: Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(
-                color: const Color(0xFFE5E7EB),
-              ),
-            ),
+      padding:
+          const EdgeInsets.only(bottom: 16),
+      child: Row(
+        crossAxisAlignment:
+            CrossAxisAlignment.start,
+        children: <Widget>[
+          Icon(
+            icon,
+            size: 22,
+            color:
+                Theme.of(context)
+                    .colorScheme
+                    .primary,
+          ),
+          const SizedBox(width: 12),
+          Expanded(
             child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(10),
-                      decoration: BoxDecoration(
-                        color: color.withOpacity(0.10),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Icon(
-                        _categoryIcon(category),
-                        color: color,
-                        size: 22,
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Text(
-                        category,
-                        style: TextStyle(
-                          color: color,
-                          fontWeight: FontWeight.w700,
-                          fontSize: 13,
-                        ),
-                      ),
-                    ),
-                    const Icon(
-                      Icons.chevron_right,
-                      color: Colors.grey,
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 14),
+              crossAxisAlignment:
+                  CrossAxisAlignment.start,
+              children: <Widget>[
                 Text(
-                  title,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w800,
-                    color: Color(0xFF111827),
-                    height: 1.25,
+                  label,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color:
+                        Colors.grey.shade600,
                   ),
                 ),
-                if (organisation.isNotEmpty) ...[
-                  const SizedBox(height: 7),
-                  Text(
-                    organisation,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: Color(0xFF6B7280),
-                      fontWeight: FontWeight.w600,
-                      fontSize: 13,
-                    ),
-                  ),
-                ],
-                const SizedBox(height: 10),
+                const SizedBox(height: 3),
                 Text(
-                  description,
-                  maxLines: 3,
-                  overflow: TextOverflow.ellipsis,
+                  value,
                   style: const TextStyle(
-                    color: Color(0xFF6B7280),
-                    fontSize: 14,
-                    height: 1.45,
+                    fontSize: 16,
+                    fontWeight:
+                        FontWeight.w600,
                   ),
-                ),
-                const SizedBox(height: 16),
-                Container(
-                  height: 1,
-                  color: const Color(0xFFF0F0F0),
-                ),
-                const SizedBox(height: 12),
-                Row(
-                  children: [
-                    Expanded(
-                      child: Row(
-                        children: [
-                          const Icon(
-                            Icons.access_time,
-                            size: 16,
-                            color: Colors.grey,
-                          ),
-                          const SizedBox(width: 5),
-                          Expanded(
-                            child: Text(
-                              createdAt,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                fontSize: 12,
-                                color: Colors.grey,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    if (deadline.isNotEmpty) ...[
-                      const SizedBox(width: 12),
-                      Row(
-                        children: [
-                          const Icon(
-                            Icons.event_outlined,
-                            size: 16,
-                            color: Colors.redAccent,
-                          ),
-                          const SizedBox(width: 5),
-                          Text(
-                            deadline,
-                            style: const TextStyle(
-                              fontSize: 12,
-                              color: Colors.redAccent,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ],
                 ),
               ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildEmptyState() {
-    return ListView(
-      physics: const AlwaysScrollableScrollPhysics(),
-      children: const [
-        SizedBox(height: 100),
-        Icon(
-          Icons.search_off_outlined,
-          size: 64,
-          color: Colors.grey,
-        ),
-        SizedBox(height: 18),
-        Center(
-          child: Text(
-            'No opportunities found',
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-        ),
-        SizedBox(height: 8),
-        Padding(
-          padding: EdgeInsets.symmetric(horizontal: 40),
-          child: Text(
-            'New opportunities will appear here as they are published.',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              color: Colors.grey,
-              height: 1.5,
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildErrorState(String error) {
-    return RefreshIndicator(
-      onRefresh: _refreshOpportunities,
-      child: ListView(
-        physics: const AlwaysScrollableScrollPhysics(),
-        children: [
-          const SizedBox(height: 120),
-          const Icon(
-            Icons.cloud_off_outlined,
-            size: 64,
-            color: Colors.redAccent,
-          ),
-          const SizedBox(height: 18),
-          const Center(
-            child: Text(
-              'Unable to load opportunities',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ),
-          const SizedBox(height: 8),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 30),
-            child: Text(
-              error,
-              textAlign: TextAlign.center,
-              style: const TextStyle(
-                color: Colors.grey,
-                fontSize: 13,
-              ),
-            ),
-          ),
-          const SizedBox(height: 20),
-          Center(
-            child: ElevatedButton.icon(
-              onPressed: _refreshOpportunities,
-              icon: const Icon(Icons.refresh),
-              label: const Text('Try Again'),
             ),
           ),
         ],
