@@ -5,12 +5,10 @@ class OpportunitiesScreen extends StatefulWidget {
   const OpportunitiesScreen({super.key});
 
   @override
-  State<OpportunitiesScreen> createState() =>
-      _OpportunitiesScreenState();
+  State<OpportunitiesScreen> createState() => _OpportunitiesScreenState();
 }
 
-class _OpportunitiesScreenState
-    extends State<OpportunitiesScreen> {
+class _OpportunitiesScreenState extends State<OpportunitiesScreen> {
   final SupabaseClient _supabase = Supabase.instance.client;
 
   late Future<List<Map<String, dynamic>>> _opportunitiesFuture;
@@ -41,11 +39,11 @@ class _OpportunitiesScreenState
           .eq('is_published', true)
           .order('created_at', ascending: false);
 
-      return List<Map<String, dynamic>>.from(data);
+      return data
+          .map((item) => Map<String, dynamic>.from(item as Map))
+          .toList();
     } catch (error) {
-      throw Exception(
-        'Unable to load opportunities: $error',
-      );
+      throw Exception('Unable to load opportunities: $error');
     }
   }
 
@@ -65,11 +63,10 @@ class _OpportunitiesScreenState
     }
 
     return opportunities.where((opportunity) {
-      final String category =
-          opportunity['category']?.toString() ?? '';
+      final category =
+          _safeText(opportunity['category']).trim().toLowerCase();
 
-      return category.toLowerCase() ==
-          _selectedCategory.toLowerCase();
+      return category == _selectedCategory.toLowerCase();
     }).toList();
   }
 
@@ -81,7 +78,13 @@ class _OpportunitiesScreenState
       return fallback;
     }
 
-    return value.toString();
+    final text = value.toString().trim();
+
+    if (text.isEmpty) {
+      return fallback;
+    }
+
+    return text;
   }
 
   bool _safeBool(
@@ -99,24 +102,74 @@ class _OpportunitiesScreenState
     return value.toString().toLowerCase() == 'true';
   }
 
-  DateTime? _parseDate(dynamic value) {
+  DateTime? _safeDate(dynamic value) {
     if (value == null) {
       return null;
     }
 
-    return DateTime.tryParse(value.toString());
+    try {
+      return DateTime.parse(value.toString());
+    } catch (_) {
+      return null;
+    }
   }
 
-  String _formatDate(DateTime? date) {
+  String _formatDate(dynamic value) {
+    final date = _safeDate(value);
+
     if (date == null) {
       return '';
     }
 
-    final String day = date.day.toString().padLeft(2, '0');
-    final String month = date.month.toString().padLeft(2, '0');
-    final String year = date.year.toString();
+    final months = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
 
-    return '$day/$month/$year';
+    return '${date.day} ${months[date.month - 1]} ${date.year}';
+  }
+
+  String _formatRelativeDate(dynamic value) {
+    final date = _safeDate(value);
+
+    if (date == null) {
+      return 'Recently added';
+    }
+
+    final now = DateTime.now();
+    final difference = now.difference(date);
+
+    if (difference.inMinutes < 1) {
+      return 'Just now';
+    }
+
+    if (difference.inMinutes < 60) {
+      return '${difference.inMinutes} min ago';
+    }
+
+    if (difference.inHours < 24) {
+      return '${difference.inHours} hr ago';
+    }
+
+    if (difference.inDays == 1) {
+      return 'Yesterday';
+    }
+
+    if (difference.inDays < 7) {
+      return '${difference.inDays} days ago';
+    }
+
+    return _formatDate(date);
   }
 
   IconData _categoryIcon(String category) {
@@ -147,139 +200,415 @@ class _OpportunitiesScreenState
   Color _categoryColor(String category) {
     switch (category.toLowerCase()) {
       case 'jobs':
-        return const Color(0xFF1565C0);
+        return Colors.blue;
 
       case 'tenders':
-        return const Color(0xFF7B1FA2);
+        return Colors.deepPurple;
 
       case 'funding':
-        return const Color(0xFF2E7D32);
+        return Colors.green;
 
       case 'training':
-        return const Color(0xFFF57C00);
+        return Colors.orange;
 
       case 'business':
-        return const Color(0xFF00838F);
+        return Colors.indigo;
 
       case 'education':
-        return const Color(0xFFC62828);
+        return Colors.teal;
 
       default:
-        return const Color(0xFF37474F);
+        return Colors.grey;
     }
+  }
+
+  void _openOpportunity(Map<String, dynamic> opportunity) {
+    final title = _safeText(
+      opportunity['title'],
+      fallback: 'Opportunity',
+    );
+
+    final description = _safeText(
+      opportunity['description'],
+      fallback: 'No additional information is available.',
+    );
+
+    final category = _safeText(
+      opportunity['category'],
+      fallback: 'Opportunity',
+    );
+
+    final organisation = _safeText(
+      opportunity['organisation'] ??
+          opportunity['organization'] ??
+          opportunity['company'] ??
+          opportunity['provider'],
+    );
+
+    final location = _safeText(opportunity['location']);
+
+    final deadline = _formatDate(
+      opportunity['closing_date'] ??
+          opportunity['deadline'] ??
+          opportunity['application_deadline'],
+    );
+
+    final briefingDate = _formatDate(
+      opportunity['briefing_date'],
+    );
+
+    final briefingRequired = _safeBool(
+      opportunity['briefing_required'],
+    );
+
+    final link = _safeText(
+      opportunity['link'] ??
+          opportunity['url'] ??
+          opportunity['application_link'],
+    );
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) {
+        return DraggableScrollableSheet(
+          initialChildSize: 0.72,
+          minChildSize: 0.45,
+          maxChildSize: 0.92,
+          builder: (context, scrollController) {
+            return Container(
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.vertical(
+                  top: Radius.circular(28),
+                ),
+              ),
+              child: Column(
+                children: [
+                  const SizedBox(height: 12),
+                  Container(
+                    width: 42,
+                    height: 5,
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade300,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
+                  Expanded(
+                    child: ListView(
+                      controller: scrollController,
+                      padding: const EdgeInsets.all(24),
+                      children: [
+                        Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: _categoryColor(category)
+                                    .withOpacity(0.12),
+                                borderRadius: BorderRadius.circular(14),
+                              ),
+                              child: Icon(
+                                _categoryIcon(category),
+                                color: _categoryColor(category),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Text(
+                                category,
+                                style: TextStyle(
+                                  color: _categoryColor(category),
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 14,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 20),
+                        Text(
+                          title,
+                          style: const TextStyle(
+                            fontSize: 25,
+                            fontWeight: FontWeight.w800,
+                            height: 1.2,
+                          ),
+                        ),
+                        if (organisation.isNotEmpty) ...[
+                          const SizedBox(height: 10),
+                          Row(
+                            children: [
+                              const Icon(
+                                Icons.business_outlined,
+                                size: 18,
+                                color: Colors.grey,
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  organisation,
+                                  style: const TextStyle(
+                                    fontSize: 15,
+                                    color: Colors.grey,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                        if (location.isNotEmpty) ...[
+                          const SizedBox(height: 8),
+                          Row(
+                            children: [
+                              const Icon(
+                                Icons.location_on_outlined,
+                                size: 18,
+                                color: Colors.grey,
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  location,
+                                  style: const TextStyle(
+                                    fontSize: 15,
+                                    color: Colors.grey,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                        const SizedBox(height: 24),
+                        const Text(
+                          'About this opportunity',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        Text(
+                          description,
+                          style: const TextStyle(
+                            fontSize: 16,
+                            height: 1.55,
+                            color: Color(0xFF4B5563),
+                          ),
+                        ),
+                        if (deadline.isNotEmpty) ...[
+                          const SizedBox(height: 24),
+                          _detailTile(
+                            icon: Icons.event_outlined,
+                            title: 'Closing date',
+                            value: deadline,
+                            color: Colors.redAccent,
+                          ),
+                        ],
+                        if (briefingRequired) ...[
+                          const SizedBox(height: 12),
+                          _detailTile(
+                            icon: Icons.groups_outlined,
+                            title: 'Briefing',
+                            value: briefingDate.isNotEmpty
+                                ? 'Required • $briefingDate'
+                                : 'Briefing required',
+                            color: Colors.orange,
+                          ),
+                        ],
+                        if (link.isNotEmpty) ...[
+                          const SizedBox(height: 24),
+                          SizedBox(
+                            width: double.infinity,
+                            child: ElevatedButton.icon(
+                              onPressed: () {
+                                Navigator.pop(context);
+
+                                ScaffoldMessenger.of(this.context)
+                                    .showSnackBar(
+                                  const SnackBar(
+                                    content: Text(
+                                      'Application link is available in the opportunity record.',
+                                    ),
+                                  ),
+                                );
+                              },
+                              icon: const Icon(Icons.open_in_new),
+                              label: const Text(
+                                'View Application Details',
+                              ),
+                              style: ElevatedButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 16,
+                                ),
+                                backgroundColor: const Color(0xFF0F766E),
+                                foregroundColor: Colors.white,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(14),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                        const SizedBox(height: 20),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _detailTile({
+    required IconData icon,
+    required String title,
+    required String value,
+    required Color color,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.07),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            icon,
+            color: color,
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: Colors.grey,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  value,
+                  style: const TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF7F7F7),
+      backgroundColor: const Color(0xFFF7F8FA),
       appBar: AppBar(
         elevation: 0,
         backgroundColor: Colors.white,
-        foregroundColor: const Color(0xFF1F1F1F),
+        foregroundColor: const Color(0xFF111827),
         title: const Text(
           'Opportunities',
           style: TextStyle(
-            fontWeight: FontWeight.w700,
+            fontWeight: FontWeight.w800,
           ),
         ),
-        actions: [
-          IconButton(
-            onPressed: _refreshOpportunities,
-            icon: const Icon(Icons.refresh),
-          ),
-        ],
       ),
-      body: RefreshIndicator(
-        onRefresh: _refreshOpportunities,
-        child: Column(
-          children: [
-            _buildHeader(),
-            _buildCategoryFilter(),
-            Expanded(
-              child: FutureBuilder<List<Map<String, dynamic>>>(
-                future: _opportunitiesFuture,
-                builder: (context, snapshot) {
-                  if (snapshot.connectionState ==
-                      ConnectionState.waiting) {
-                    return const Center(
-                      child: CircularProgressIndicator(),
-                    );
-                  }
+      body: FutureBuilder<List<Map<String, dynamic>>>(
+        future: _opportunitiesFuture,
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(
+              child: CircularProgressIndicator(),
+            );
+          }
 
-                  if (snapshot.hasError) {
-                    return _buildErrorState(
-                      snapshot.error.toString(),
-                    );
-                  }
+          if (snapshot.hasError) {
+            return _buildErrorState(
+              snapshot.error.toString(),
+            );
+          }
 
-                  final List<Map<String, dynamic>>
-                      opportunities =
-                      _filterOpportunities(
-                    snapshot.data ?? [],
-                  );
+          final opportunities = snapshot.data ?? [];
 
-                  if (opportunities.isEmpty) {
-                    return _buildEmptyState();
-                  }
+          final filteredOpportunities =
+              _filterOpportunities(opportunities);
 
-                  return ListView.builder(
-                    physics:
-                        const AlwaysScrollableScrollPhysics(),
-                    padding: const EdgeInsets.fromLTRB(
-                      16,
-                      8,
-                      16,
-                      30,
-                    ),
-                    itemCount: opportunities.length,
-                    itemBuilder: (
-                      context,
-                      index,
-                    ) {
-                      return _buildOpportunityCard(
-                        opportunities[index],
-                      );
-                    },
-                  );
-                },
-              ),
+          return RefreshIndicator(
+            onRefresh: _refreshOpportunities,
+            child: Column(
+              children: [
+                _buildHeader(
+                  opportunities.length,
+                ),
+                _buildCategories(),
+                Expanded(
+                  child: filteredOpportunities.isEmpty
+                      ? _buildEmptyState()
+                      : ListView.builder(
+                          physics:
+                              const AlwaysScrollableScrollPhysics(),
+                          padding: const EdgeInsets.fromLTRB(
+                            16,
+                            8,
+                            16,
+                            24,
+                          ),
+                          itemCount: filteredOpportunities.length,
+                          itemBuilder: (context, index) {
+                            return _buildOpportunityCard(
+                              filteredOpportunities[index],
+                            );
+                          },
+                        ),
+                ),
+              ],
             ),
-          ],
-        ),
+          );
+        },
       ),
     );
   }
 
-  Widget _buildHeader() {
+  Widget _buildHeader(int totalOpportunities) {
     return Container(
       width: double.infinity,
+      color: Colors.white,
       padding: const EdgeInsets.fromLTRB(
         20,
-        18,
+        8,
         20,
         18,
       ),
-      color: Colors.white,
-      child: const Column(
-        crossAxisAlignment:
-            CrossAxisAlignment.start,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            'Find your next opportunity',
+          const Text(
+            'Discover opportunities',
             style: TextStyle(
-              fontSize: 22,
+              fontSize: 24,
               fontWeight: FontWeight.w800,
-              color: Color(0xFF1F1F1F),
+              color: Color(0xFF111827),
             ),
           ),
-          SizedBox(height: 6),
+          const SizedBox(height: 6),
           Text(
-            'Verified jobs, tenders, funding, training and opportunities for our community.',
-            style: TextStyle(
+            '$totalOpportunities opportunities available for you',
+            style: const TextStyle(
               fontSize: 14,
-              height: 1.4,
-              color: Color(0xFF666666),
+              color: Color(0xFF6B7280),
             ),
           ),
         ],
@@ -287,55 +616,46 @@ class _OpportunitiesScreenState
     );
   }
 
-  Widget _buildCategoryFilter() {
+  Widget _buildCategories() {
     return Container(
-      height: 62,
+      height: 64,
       color: Colors.white,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.symmetric(
           horizontal: 16,
-          vertical: 10,
+          vertical: 12,
         ),
         itemCount: _categories.length,
-        separatorBuilder: (
-          context,
-          index,
-        ) {
+        separatorBuilder: (_, __) {
           return const SizedBox(width: 8);
         },
-        itemBuilder: (
-          context,
-          index,
-        ) {
-          final String category =
-              _categories[index];
+        itemBuilder: (context, index) {
+          final category = _categories[index];
 
-          final bool selected =
+          final isSelected =
               category == _selectedCategory;
 
           return ChoiceChip(
             label: Text(category),
-            selected: selected,
-            selectedColor:
-                const Color(0xFF111111),
-            backgroundColor:
-                const Color(0xFFF0F0F0),
+            selected: isSelected,
+            onSelected: (_) {
+              setState(() {
+                _selectedCategory = category;
+              });
+            },
+            selectedColor: const Color(0xFF0F766E),
+            backgroundColor: const Color(0xFFF3F4F6),
             labelStyle: TextStyle(
-              color: selected
+              color: isSelected
                   ? Colors.white
-                  : const Color(0xFF333333),
+                  : const Color(0xFF374151),
               fontWeight: FontWeight.w600,
             ),
-            side: BorderSide.none,
-            onSelected: (bool value) {
-              if (value) {
-                setState(() {
-                  _selectedCategory =
-                      category;
-                });
-              }
-            },
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(20),
+              side: BorderSide.none,
+            ),
           );
         },
       ),
@@ -345,255 +665,201 @@ class _OpportunitiesScreenState
   Widget _buildOpportunityCard(
     Map<String, dynamic> opportunity,
   ) {
-    final String title = _safeText(
+    final title = _safeText(
       opportunity['title'],
       fallback: 'Untitled opportunity',
     );
 
-    final String description = _safeText(
+    final description = _safeText(
       opportunity['description'],
+      fallback: 'Tap to view more information.',
     );
 
-    final String category = _safeText(
+    final category = _safeText(
       opportunity['category'],
       fallback: 'Opportunity',
     );
 
-    final String organisation = _safeText(
+    final organisation = _safeText(
       opportunity['organisation'] ??
+          opportunity['organization'] ??
           opportunity['company'] ??
-          opportunity['source'],
+          opportunity['provider'],
     );
 
-    final String location = _safeText(
-      opportunity['location'],
+    final deadline = _formatDate(
+      opportunity['closing_date'] ??
+          opportunity['deadline'] ??
+          opportunity['application_deadline'],
     );
 
-    final String link = _safeText(
-      opportunity['link'] ??
-          opportunity['url'] ??
-          opportunity['application_link'],
+    final createdAt = _formatRelativeDate(
+      opportunity['published_at'] ??
+          opportunity['created_at'],
     );
 
-    final DateTime? closingDate = _parseDate(
-      opportunity['closing_date'],
-    );
+    final color = _categoryColor(category);
 
-    final bool verified = _safeBool(
-      opportunity['is_verified'],
-    );
-
-    final Color categoryColor =
-        _categoryColor(category);
-
-    return Card(
-      margin: const EdgeInsets.only(
-        bottom: 14,
-      ),
-      elevation: 0,
-      color: Colors.white,
-      shape: RoundedRectangleBorder(
-        borderRadius:
-            BorderRadius.circular(18),
-        side: const BorderSide(
-          color: Color(0xFFE8E8E8),
-        ),
-      ),
-      child: InkWell(
-        borderRadius:
-            BorderRadius.circular(18),
-        onTap: () {
-          _showOpportunityDetails(
-            opportunity,
-          );
-        },
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment:
-                CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Container(
-                    width: 46,
-                    height: 46,
-                    decoration: BoxDecoration(
-                      color:
-                          categoryColor.withOpacity(
-                        0.12,
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Material(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(20),
+          onTap: () {
+            _openOpportunity(opportunity);
+          },
+          child: Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(
+                color: const Color(0xFFE5E7EB),
+              ),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: color.withOpacity(0.10),
+                        borderRadius: BorderRadius.circular(12),
                       ),
-                      borderRadius:
-                          BorderRadius.circular(14),
+                      child: Icon(
+                        _categoryIcon(category),
+                        color: color,
+                        size: 22,
+                      ),
                     ),
-                    child: Icon(
-                      _categoryIcon(category),
-                      color: categoryColor,
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment:
-                          CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          category.toUpperCase(),
-                          style: TextStyle(
-                            fontSize: 11,
-                            letterSpacing: 0.8,
-                            fontWeight:
-                                FontWeight.w800,
-                            color: categoryColor,
-                          ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        category,
+                        style: TextStyle(
+                          color: color,
+                          fontWeight: FontWeight.w700,
+                          fontSize: 13,
                         ),
-                        if (verified)
-                          const SizedBox(height: 4),
-                        if (verified)
-                          const Row(
-                            children: [
-                              Icon(
-                                Icons.verified,
-                                size: 15,
-                                color:
-                                    Color(0xFF1B8F4B),
-                              ),
-                              SizedBox(width: 4),
-                              Text(
-                                'VERIFIED',
-                                style: TextStyle(
-                                  fontSize: 10,
-                                  fontWeight:
-                                      FontWeight.w800,
-                                  color:
-                                      Color(0xFF1B8F4B),
-                                ),
-                              ),
-                            ],
-                          ),
-                      ],
+                      ),
+                    ),
+                    const Icon(
+                      Icons.chevron_right,
+                      color: Colors.grey,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 14),
+                Text(
+                  title,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w800,
+                    color: Color(0xFF111827),
+                    height: 1.25,
+                  ),
+                ),
+                if (organisation.isNotEmpty) ...[
+                  const SizedBox(height: 7),
+                  Text(
+                    organisation,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Color(0xFF6B7280),
+                      fontWeight: FontWeight.w600,
+                      fontSize: 13,
                     ),
                   ),
                 ],
-              ),
-              const SizedBox(height: 16),
-              Text(
-                title,
-                style: const TextStyle(
-                  fontSize: 18,
-                  height: 1.25,
-                  fontWeight:
-                      FontWeight.w800,
-                  color: Color(0xFF202020),
-                ),
-              ),
-              if (organisation.isNotEmpty) ...[
-                const SizedBox(height: 8),
-                Text(
-                  organisation,
-                  style: const TextStyle(
-                    fontSize: 14,
-                    fontWeight:
-                        FontWeight.w600,
-                    color: Color(0xFF555555),
-                  ),
-                ),
-              ],
-              if (description.isNotEmpty) ...[
                 const SizedBox(height: 10),
                 Text(
                   description,
                   maxLines: 3,
-                  overflow:
-                      TextOverflow.ellipsis,
+                  overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
+                    color: Color(0xFF6B7280),
                     fontSize: 14,
                     height: 1.45,
-                    color: Color(0xFF666666),
                   ),
                 ),
-              ],
-              const SizedBox(height: 14),
-              Wrap(
-                spacing: 14,
-                runSpacing: 8,
-                children: [
-                  if (location.isNotEmpty)
-                    _buildInfoItem(
-                      Icons.location_on_outlined,
-                      location,
-                    ),
-                  if (closingDate != null)
-                    _buildInfoItem(
-                      Icons.calendar_today_outlined,
-                      'Closes ${_formatDate(closingDate)}',
-                    ),
-                ],
-              ),
-              if (link.isNotEmpty) ...[
-                const SizedBox(height: 14),
-                const Row(
+                const SizedBox(height: 16),
+                Container(
+                  height: 1,
+                  color: const Color(0xFFF0F0F0),
+                ),
+                const SizedBox(height: 12),
+                Row(
                   children: [
-                    Text(
-                      'View opportunity',
-                      style: TextStyle(
-                        fontWeight:
-                            FontWeight.w700,
-                        color:
-                            Color(0xFF111111),
+                    Expanded(
+                      child: Row(
+                        children: [
+                          const Icon(
+                            Icons.access_time,
+                            size: 16,
+                            color: Colors.grey,
+                          ),
+                          const SizedBox(width: 5),
+                          Expanded(
+                            child: Text(
+                              createdAt,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontSize: 12,
+                                color: Colors.grey,
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
                     ),
-                    SizedBox(width: 6),
-                    Icon(
-                      Icons.arrow_forward,
-                      size: 18,
-                    ),
+                    if (deadline.isNotEmpty) ...[
+                      const SizedBox(width: 12),
+                      Row(
+                        children: [
+                          const Icon(
+                            Icons.event_outlined,
+                            size: 16,
+                            color: Colors.redAccent,
+                          ),
+                          const SizedBox(width: 5),
+                          Text(
+                            deadline,
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: Colors.redAccent,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
                   ],
                 ),
               ],
-            ],
+            ),
           ),
         ),
       ),
-    );
-  }
-
-  Widget _buildInfoItem(
-    IconData icon,
-    String text,
-  ) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(
-          icon,
-          size: 16,
-          color: const Color(0xFF777777),
-        ),
-        const SizedBox(width: 5),
-        Text(
-          text,
-          style: const TextStyle(
-            fontSize: 12,
-            color: Color(0xFF777777),
-          ),
-        ),
-      ],
     );
   }
 
   Widget _buildEmptyState() {
     return ListView(
-      physics:
-          const AlwaysScrollableScrollPhysics(),
+      physics: const AlwaysScrollableScrollPhysics(),
       children: const [
-        SizedBox(height: 80),
+        SizedBox(height: 100),
         Icon(
           Icons.search_off_outlined,
-          size: 58,
-          color: Color(0xFF999999),
+          size: 64,
+          color: Colors.grey,
         ),
-        SizedBox(height: 16),
+        SizedBox(height: 18),
         Center(
           child: Text(
             'No opportunities found',
@@ -605,14 +871,13 @@ class _OpportunitiesScreenState
         ),
         SizedBox(height: 8),
         Padding(
-          padding:
-              EdgeInsets.symmetric(horizontal: 40),
+          padding: EdgeInsets.symmetric(horizontal: 40),
           child: Text(
-            'New verified opportunities will appear here.',
+            'New opportunities will appear here as they are published.',
             textAlign: TextAlign.center,
             style: TextStyle(
-              fontSize: 14,
-              color: Color(0xFF777777),
+              color: Colors.grey,
+              height: 1.5,
             ),
           ),
         ),
@@ -620,304 +885,50 @@ class _OpportunitiesScreenState
     );
   }
 
-  Widget _buildErrorState(
-    String error,
-  ) {
-    return ListView(
-      physics:
-          const AlwaysScrollableScrollPhysics(),
-      padding:
-          const EdgeInsets.symmetric(
-        horizontal: 24,
+  Widget _buildErrorState(String error) {
+    return RefreshIndicator(
+      onRefresh: _refreshOpportunities,
+      child: ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        children: [
+          const SizedBox(height: 120),
+          const Icon(
+            Icons.cloud_off_outlined,
+            size: 64,
+            color: Colors.redAccent,
+          ),
+          const SizedBox(height: 18),
+          const Center(
+            child: Text(
+              'Unable to load opportunities',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 30),
+            child: Text(
+              error,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                color: Colors.grey,
+                fontSize: 13,
+              ),
+            ),
+          ),
+          const SizedBox(height: 20),
+          Center(
+            child: ElevatedButton.icon(
+              onPressed: _refreshOpportunities,
+              icon: const Icon(Icons.refresh),
+              label: const Text('Try Again'),
+            ),
+          ),
+        ],
       ),
-      children: [
-        const SizedBox(height: 80),
-        const Icon(
-          Icons.cloud_off_outlined,
-          size: 58,
-          color: Color(0xFF999999),
-        ),
-        const SizedBox(height: 16),
-        const Center(
-          child: Text(
-            'Unable to load opportunities',
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight:
-                  FontWeight.w700,
-            ),
-          ),
-        ),
-        const SizedBox(height: 10),
-        Text(
-          error,
-          textAlign:
-              TextAlign.center,
-          style: const TextStyle(
-            fontSize: 12,
-            color: Color(0xFF888888),
-          ),
-        ),
-        const SizedBox(height: 20),
-        Center(
-          child: ElevatedButton.icon(
-            onPressed:
-                _refreshOpportunities,
-            icon: const Icon(
-              Icons.refresh,
-            ),
-            label: const Text(
-              'Try again',
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  void _showOpportunityDetails(
-    Map<String, dynamic> opportunity,
-  ) {
-    final String title = _safeText(
-      opportunity['title'],
-      fallback: 'Opportunity',
-    );
-
-    final String description =
-        _safeText(
-      opportunity['description'],
-    );
-
-    final String category =
-        _safeText(
-      opportunity['category'],
-      fallback: 'Opportunity',
-    );
-
-    final String organisation =
-        _safeText(
-      opportunity['organisation'] ??
-          opportunity['company'] ??
-          opportunity['source'],
-    );
-
-    final String location =
-        _safeText(
-      opportunity['location'],
-    );
-
-    final DateTime? closingDate =
-        _parseDate(
-      opportunity['closing_date'],
-    );
-
-    final bool verified =
-        _safeBool(
-      opportunity['is_verified'],
-    );
-
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor:
-          Colors.transparent,
-      builder: (context) {
-        return DraggableScrollableSheet(
-          initialChildSize: 0.75,
-          minChildSize: 0.45,
-          maxChildSize: 0.95,
-          builder: (
-            context,
-            scrollController,
-          ) {
-            return Container(
-              decoration:
-                  const BoxDecoration(
-                color: Colors.white,
-                borderRadius:
-                    BorderRadius.vertical(
-                  top: Radius.circular(28),
-                ),
-              ),
-              child: ListView(
-                controller:
-                    scrollController,
-                padding:
-                    const EdgeInsets.all(22),
-                children: [
-                  Center(
-                    child: Container(
-                      width: 44,
-                      height: 5,
-                      decoration:
-                          BoxDecoration(
-                        color:
-                            const Color(0xFFD0D0D0),
-                        borderRadius:
-                            BorderRadius.circular(
-                          10,
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(
-                    height: 22,
-                  ),
-                  Text(
-                    category.toUpperCase(),
-                    style: TextStyle(
-                      fontSize: 12,
-                      letterSpacing: 1,
-                      fontWeight:
-                          FontWeight.w800,
-                      color:
-                          _categoryColor(
-                        category,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(
-                    height: 8,
-                  ),
-                  Text(
-                    title,
-                    style:
-                        const TextStyle(
-                      fontSize: 25,
-                      height: 1.2,
-                      fontWeight:
-                          FontWeight.w800,
-                      color:
-                          Color(0xFF202020),
-                    ),
-                  ),
-                  const SizedBox(
-                    height: 14,
-                  ),
-                  if (verified)
-                    const Row(
-                      children: [
-                        Icon(
-                          Icons.verified,
-                          color:
-                              Color(0xFF1B8F4B),
-                        ),
-                        SizedBox(
-                          width: 7,
-                        ),
-                        Text(
-                          'Verified opportunity',
-                          style:
-                              TextStyle(
-                            fontWeight:
-                                FontWeight
-                                    .w700,
-                            color:
-                                Color(
-                              0xFF1B8F4B,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  if (organisation
-                      .isNotEmpty) ...[
-                    const SizedBox(
-                      height: 14,
-                    ),
-                    _buildDetailRow(
-                      Icons.business_outlined,
-                      organisation,
-                    ),
-                  ],
-                  if (location
-                      .isNotEmpty) ...[
-                    const SizedBox(
-                      height: 10,
-                    ),
-                    _buildDetailRow(
-                      Icons.location_on_outlined,
-                      location,
-                    ),
-                  ],
-                  if (closingDate !=
-                      null) ...[
-                    const SizedBox(
-                      height: 10,
-                    ),
-                    _buildDetailRow(
-                      Icons
-                          .calendar_today_outlined,
-                      'Closing date: ${_formatDate(closingDate)}',
-                    ),
-                  ],
-                  if (description
-                      .isNotEmpty) ...[
-                    const SizedBox(
-                      height: 24,
-                    ),
-                    const Text(
-                      'About this opportunity',
-                      style:
-                          TextStyle(
-                        fontSize: 18,
-                        fontWeight:
-                            FontWeight
-                                .w800,
-                      ),
-                    ),
-                    const SizedBox(
-                      height: 10,
-                    ),
-                    Text(
-                      description,
-                      style:
-                          const TextStyle(
-                        fontSize: 15,
-                        height: 1.55,
-                        color:
-                            Color(0xFF555555),
-                      ),
-                    ),
-                  ],
-                  const SizedBox(
-                    height: 40,
-                  ),
-                ],
-              ),
-            );
-          },
-        );
-      },
-    );
-  }
-
-  Widget _buildDetailRow(
-    IconData icon,
-    String text,
-  ) {
-    return Row(
-      children: [
-        Icon(
-          icon,
-          size: 20,
-          color: const Color(
-            0xFF666666,
-          ),
-        ),
-        const SizedBox(width: 10),
-        Expanded(
-          child: Text(
-            text,
-            style:
-                const TextStyle(
-              fontSize: 14,
-              color:
-                  Color(0xFF555555),
-            ),
-          ),
-        ),
-      ],
     );
   }
 }
