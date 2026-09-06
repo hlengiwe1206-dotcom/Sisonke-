@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import 'create_help_request_screen.dart';
+
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
 
@@ -198,7 +200,12 @@ class _HomeScreenState extends State<HomeScreen> {
       backgroundColor: Colors.transparent,
       builder: (context) {
         return Container(
-          padding: const EdgeInsets.fromLTRB(24, 24, 24, 36),
+          padding: const EdgeInsets.fromLTRB(
+            24,
+            24,
+            24,
+            36,
+          ),
           decoration: const BoxDecoration(
             color: Color(0xFF151515),
             borderRadius: BorderRadius.vertical(
@@ -261,7 +268,9 @@ class _HomeScreenState extends State<HomeScreen> {
 
                       ScaffoldMessenger.of(context).showSnackBar(
                         SnackBar(
-                          content: Text('$title feature coming next.'),
+                          content: Text(
+                            '$title feature coming next.',
+                          ),
                         ),
                       );
                     },
@@ -314,7 +323,9 @@ class _HomeScreenState extends State<HomeScreen> {
           post['organisation'],
     );
 
-    final date = _formatDate(_postDate(post));
+    final date = _formatDate(
+      _postDate(post),
+    );
 
     showModalBottomSheet(
       context: context,
@@ -364,7 +375,8 @@ class _HomeScreenState extends State<HomeScreen> {
                           color: _categoryColor(
                             category,
                           ).withOpacity(0.18),
-                          borderRadius: BorderRadius.circular(30),
+                          borderRadius:
+                              BorderRadius.circular(30),
                         ),
                         child: Text(
                           category.toUpperCase(),
@@ -562,7 +574,8 @@ class _HomeScreenState extends State<HomeScreen> {
                   }
 
                   return SliverList(
-                    delegate: SliverChildBuilderDelegate(
+                    delegate:
+                        SliverChildBuilderDelegate(
                       (context, index) {
                         final post = posts[index];
 
@@ -592,7 +605,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _buildHeader() {
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment:
+          CrossAxisAlignment.start,
       children: [
         const Text(
           'Good morning,',
@@ -651,20 +665,22 @@ class _HomeScreenState extends State<HomeScreen> {
               width: cardWidth,
               child: _buildActionCard(
                 title: 'ASK FOR\nHELP',
-                icon: Icons.volunteer_activism_outlined,
+                icon:
+                    Icons.volunteer_activism_outlined,
                 color: const Color(0xFFE9322A),
+
+                // NOW OPENS THE REAL FORM
                 onTap: () {
-                  _showActionSheet(
-                    title: 'Ask for Help',
-                    description:
-                        'Request support from people and organisations in your community.',
-                    icon:
-                        Icons.volunteer_activism_outlined,
-                    color: const Color(0xFFE9322A),
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) =>
+                          const CreateHelpRequestScreen(),
+                    ),
                   );
                 },
               ),
             ),
+
             SizedBox(
               width: cardWidth,
               child: _buildActionCard(
@@ -676,17 +692,20 @@ class _HomeScreenState extends State<HomeScreen> {
                     title: 'Offer Help',
                     description:
                         'Offer your skills, resources, knowledge or time to help someone.',
-                    icon: Icons.handshake_outlined,
+                    icon:
+                        Icons.handshake_outlined,
                     color: const Color(0xFF0F6B4A),
                   );
                 },
               ),
             ),
+
             SizedBox(
               width: cardWidth,
               child: _buildActionCard(
                 title: 'OPPORTUNITIES',
-                icon: Icons.business_center_outlined,
+                icon:
+                    Icons.business_center_outlined,
                 color: const Color(0xFF1E4F7F),
                 onTap: () {
                   _showActionSheet(
@@ -700,6 +719,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 },
               ),
             ),
+
             SizedBox(
               width: cardWidth,
               child: _buildActionCard(
@@ -711,7 +731,8 @@ class _HomeScreenState extends State<HomeScreen> {
                     title: 'Share Information',
                     description:
                         'Help your community by sharing useful and verified information.',
-                    icon: Icons.campaign_outlined,
+                    icon:
+                        Icons.campaign_outlined,
                     color: const Color(0xFFFFB41F),
                   );
                 },
@@ -751,12 +772,14 @@ class _HomeScreenState extends State<HomeScreen> {
               Text(
                 title,
                 maxLines: 2,
-                overflow: TextOverflow.ellipsis,
+                overflow:
+                    TextOverflow.ellipsis,
                 style: const TextStyle(
                   color: Colors.white,
                   fontSize: 22,
                   height: 1.08,
-                  fontWeight: FontWeight.w900,
+                  fontWeight:
+                      FontWeight.w900,
                   letterSpacing: 0.3,
                 ),
               ),
@@ -769,7 +792,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _buildInformationHeader() {
     return const Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment:
+          CrossAxisAlignment.start,
       children: [
         Text(
           'COMMUNITY INSIGHT',
@@ -830,7 +854,8 @@ class _HomeScreenState extends State<HomeScreen> {
       borderRadius: BorderRadius.circular(30),
       child: InkWell(
         borderRadius: BorderRadius.circular(30),
-        onTap: () => _showPostDetails(post),
+        onTap: () =>
+            _showPostDetails(post),
         child: Padding(
           padding: const EdgeInsets.all(24),
           child: Column(
@@ -843,7 +868,8 @@ class _HomeScreenState extends State<HomeScreen> {
                     width: 48,
                     height: 48,
                     decoration: BoxDecoration(
-                      color: color.withOpacity(0.18),
+                      color:
+                          color.withOpacity(0.18),
                       borderRadius:
                           BorderRadius.circular(15),
                     ),
@@ -858,12 +884,14 @@ class _HomeScreenState extends State<HomeScreen> {
                     child: Text(
                       category.toUpperCase(),
                       maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
+                      overflow:
+                          TextOverflow.ellipsis,
                       style: TextStyle(
                         color: color,
                         fontSize: 12,
                         letterSpacing: 1,
-                        fontWeight: FontWeight.w900,
+                        fontWeight:
+                            FontWeight.w900,
                       ),
                     ),
                   ),
@@ -878,19 +906,22 @@ class _HomeScreenState extends State<HomeScreen> {
               Text(
                 title,
                 maxLines: 3,
-                overflow: TextOverflow.ellipsis,
+                overflow:
+                    TextOverflow.ellipsis,
                 style: const TextStyle(
                   color: Colors.white,
                   fontSize: 24,
                   height: 1.18,
-                  fontWeight: FontWeight.w900,
+                  fontWeight:
+                      FontWeight.w900,
                 ),
               ),
               const SizedBox(height: 14),
               Text(
                 description,
                 maxLines: 4,
-                overflow: TextOverflow.ellipsis,
+                overflow:
+                    TextOverflow.ellipsis,
                 style: const TextStyle(
                   color: Colors.white70,
                   fontSize: 16,
@@ -946,7 +977,8 @@ class _HomeScreenState extends State<HomeScreen> {
       padding: const EdgeInsets.all(30),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(28),
+        borderRadius:
+            BorderRadius.circular(28),
       ),
       child: Column(
         children: [
@@ -985,7 +1017,8 @@ class _HomeScreenState extends State<HomeScreen> {
       padding: const EdgeInsets.all(28),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(28),
+        borderRadius:
+            BorderRadius.circular(28),
       ),
       child: Column(
         children: [
