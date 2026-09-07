@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 class OpportunityDetailsScreen extends StatefulWidget {
@@ -19,43 +18,26 @@ class _OpportunityDetailsScreenState
     extends State<OpportunityDetailsScreen> {
   final SupabaseClient _supabase = Supabase.instance.client;
 
-  bool _isSaved = false;
-  bool _isLoadingSaveStatus = true;
   bool _isSaving = false;
+  bool _isSaved = false;
 
   Map<String, dynamic> get opportunity => widget.opportunity;
 
   @override
   void initState() {
     super.initState();
-    _loadSaveStatus();
+    _checkIfSaved();
   }
 
-  Future<void> _loadSaveStatus() async {
+  Future<void> _checkIfSaved() async {
     try {
       final user = _supabase.auth.currentUser;
 
-      if (user == null) {
-        if (mounted) {
-          setState(() {
-            _isSaved = false;
-            _isLoadingSaveStatus = false;
-          });
-        }
-        return;
-      }
+      if (user == null) return;
 
       final opportunityId = opportunity['id'];
 
-      if (opportunityId == null) {
-        if (mounted) {
-          setState(() {
-            _isSaved = false;
-            _isLoadingSaveStatus = false;
-          });
-        }
-        return;
-      }
+      if (opportunityId == null) return;
 
       final result = await _supabase
           .from('opportunity_saves')
@@ -68,15 +50,9 @@ class _OpportunityDetailsScreenState
 
       setState(() {
         _isSaved = result != null;
-        _isLoadingSaveStatus = false;
       });
     } catch (_) {
-      if (!mounted) return;
-
-      setState(() {
-        _isSaved = false;
-        _isLoadingSaveStatus = false;
-      });
+      // Do not interrupt the screen if the saved-status check fails.
     }
   }
 
@@ -86,20 +62,28 @@ class _OpportunityDetailsScreenState
     final user = _supabase.auth.currentUser;
 
     if (user == null) {
-      _showMessage(
-        'Please sign in to save opportunities.',
-        isError: true,
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please sign in to save opportunities.'),
+        ),
       );
+
       return;
     }
 
     final opportunityId = opportunity['id'];
 
     if (opportunityId == null) {
-      _showMessage(
-        'This opportunity could not be saved.',
-        isError: true,
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('This opportunity could not be saved.'),
+        ),
       );
+
       return;
     }
 
@@ -121,8 +105,10 @@ class _OpportunityDetailsScreenState
           _isSaved = false;
         });
 
-        _showMessage(
-          'Opportunity removed from saved opportunities.',
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Opportunity removed from saved opportunities.'),
+          ),
         );
       } else {
         await _supabase.from('opportunity_saves').insert({
@@ -136,14 +122,19 @@ class _OpportunityDetailsScreenState
           _isSaved = true;
         });
 
-        _showMessage(
-          'Opportunity saved successfully.',
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Opportunity saved successfully.'),
+          ),
         );
       }
-    } catch (_) {
-      _showMessage(
-        'Something went wrong. Please try again.',
-        isError: true,
+    } catch (error) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Unable to update saved opportunity: $error'),
+        ),
       );
     } finally {
       if (mounted) {
@@ -154,831 +145,473 @@ class _OpportunityDetailsScreenState
     }
   }
 
-  void _showMessage(
-    String message, {
-    bool isError = false,
-  }) {
-    if (!mounted) return;
-
-    ScaffoldMessenger.of(context).hideCurrentSnackBar();
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor:
-            isError ? const Color(0xFFE9322A) : const Color(0xFF1F6B4F),
-        behavior: SnackBarBehavior.floating,
-      ),
-    );
-  }
-
-  String _textValue(
-    String key, {
-    String fallback = '',
-  }) {
+  String _value(String key, {String fallback = ''}) {
     final value = opportunity[key];
 
     if (value == null) return fallback;
 
     final text = value.toString().trim();
 
-    if (text.isEmpty) return fallback;
-
-    return text;
+    return text.isEmpty ? fallback : text;
   }
 
-  DateTime? _dateValue(String key) {
-    final value = opportunity[key];
-
-    if (value == null) return null;
+  String _formatDate(dynamic value) {
+    if (value == null) return 'Not specified';
 
     try {
-      return DateTime.parse(value.toString()).toLocal();
+      final date = DateTime.parse(value.toString()).toLocal();
+
+      const months = [
+        'January',
+        'February',
+        'March',
+        'April',
+        'May',
+        'June',
+        'July',
+        'August',
+        'September',
+        'October',
+        'November',
+        'December',
+      ];
+
+      return '${date.day} ${months[date.month - 1]} ${date.year}';
     } catch (_) {
-      return null;
+      return value.toString();
     }
   }
 
-  String _formatDate(DateTime? date) {
-    if (date == null) return '';
+  Color _typeColor(String type) {
+    switch (type.toLowerCase()) {
+      case 'tender':
+      case 'procurement':
+        return const Color(0xFFFF7A00);
 
-    const months = [
-      'January',
-      'February',
-      'March',
-      'April',
-      'May',
-      'June',
-      'July',
-      'August',
-      'September',
-      'October',
-      'November',
-      'December',
-    ];
+      case 'employment':
+      case 'job':
+      case 'jobs':
+        return const Color(0xFF2563EB);
 
-    return '${date.day} ${months[date.month - 1]} ${date.year}';
+      case 'funding':
+      case 'grant':
+        return const Color(0xFF7C3AED);
+
+      case 'learnership':
+      case 'learnerships':
+      case 'training':
+      case 'education':
+        return const Color(0xFF059669);
+
+      default:
+        return const Color(0xFF1F4F7C);
+    }
   }
 
-  String _formatDateTime(DateTime? date) {
-    if (date == null) return '';
+  IconData _typeIcon(String type) {
+    switch (type.toLowerCase()) {
+      case 'tender':
+      case 'procurement':
+        return Icons.description_outlined;
 
-    const months = [
-      'Jan',
-      'Feb',
-      'Mar',
-      'Apr',
-      'May',
-      'Jun',
-      'Jul',
-      'Aug',
-      'Sep',
-      'Oct',
-      'Nov',
-      'Dec',
-    ];
+      case 'employment':
+      case 'job':
+      case 'jobs':
+        return Icons.work_outline;
 
-    final hour =
-        date.hour.toString().padLeft(2, '0');
+      case 'funding':
+      case 'grant':
+        return Icons.account_balance_outlined;
 
-    final minute =
-        date.minute.toString().padLeft(2, '0');
+      case 'learnership':
+      case 'learnerships':
+      case 'training':
+      case 'education':
+        return Icons.school_outlined;
 
-    return '${date.day} ${months[date.month - 1]} ${date.year} '
-        '$hour:$minute';
-  }
-
-  String _opportunityType() {
-    final possibleKeys = [
-      'type',
-      'category',
-      'opportunity_category',
-      'opportunity_type',
-    ];
-
-    for (final key in possibleKeys) {
-      final value = _textValue(key);
-
-      if (value.isNotEmpty) {
-        return value;
-      }
+      default:
+        return Icons.lightbulb_outline;
     }
-
-    return 'Opportunity';
-  }
-
-  IconData _typeIcon() {
-    final type = _opportunityType().toLowerCase();
-
-    if (type.contains('tender')) {
-      return Icons.account_balance_outlined;
-    }
-
-    if (type.contains('employment') ||
-        type.contains('job') ||
-        type.contains('career')) {
-      return Icons.work_outline;
-    }
-
-    if (type.contains('learnership') ||
-        type.contains('internship') ||
-        type.contains('education') ||
-        type.contains('training')) {
-      return Icons.school_outlined;
-    }
-
-    if (type.contains('fund') ||
-        type.contains('grant') ||
-        type.contains('finance')) {
-      return Icons.account_balance_wallet_outlined;
-    }
-
-    return Icons.lightbulb_outline;
-  }
-
-  Color _typeColor() {
-    final type = _opportunityType().toLowerCase();
-
-    if (type.contains('tender')) {
-      return const Color(0xFF1F4F7C);
-    }
-
-    if (type.contains('employment') ||
-        type.contains('job') ||
-        type.contains('career')) {
-      return const Color(0xFF3D7A5E);
-    }
-
-    if (type.contains('learnership') ||
-        type.contains('internship') ||
-        type.contains('education') ||
-        type.contains('training')) {
-      return const Color(0xFF6C4BA3);
-    }
-
-    if (type.contains('fund') ||
-        type.contains('grant') ||
-        type.contains('finance')) {
-      return const Color(0xFFB7791F);
-    }
-
-    return const Color(0xFF1F6B4F);
-  }
-
-  Future<void> _copyApplicationLink() async {
-    final link = _findApplicationLink();
-
-    if (link.isEmpty) {
-      _showMessage(
-        'No application link is available.',
-        isError: true,
-      );
-      return;
-    }
-
-    await Clipboard.setData(
-      ClipboardData(text: link),
-    );
-
-    _showMessage(
-      'Application link copied.',
-    );
-  }
-
-  String _findApplicationLink() {
-    final possibleKeys = [
-      'application_url',
-      'application_link',
-      'link',
-      'url',
-      'website',
-    ];
-
-    for (final key in possibleKeys) {
-      final value = _textValue(key);
-
-      if (value.isNotEmpty) {
-        return value;
-      }
-    }
-
-    return '';
   }
 
   @override
   Widget build(BuildContext context) {
-    final title = _textValue(
+    final title = _value(
       'title',
-      fallback: 'Opportunity',
+      fallback: 'Untitled Opportunity',
     );
 
-    final description = _textValue(
+    final description = _value(
       'description',
-      fallback:
-          'No additional information has been provided for this opportunity.',
+      fallback: 'No description available for this opportunity.',
     );
 
-    final organisation = _textValue(
+    final organisation = _value(
       'organisation',
       fallback: 'Organisation not specified',
     );
 
-    final location = _textValue(
+    final location = _value(
       'location',
       fallback: 'Location not specified',
     );
 
-    final opportunityType =
-        _opportunityType();
+    final opportunityType = _value(
+      'opportunity_type',
+      fallback: _value(
+        'type',
+        fallback: 'Opportunity',
+      ),
+    );
 
-    final applicationLink =
-        _findApplicationLink();
+    final deadline =
+        opportunity['closing_date'] ??
+        opportunity['deadline'] ??
+        opportunity['application_deadline'];
 
-    final closingDate =
-        _dateValue('closing_date');
-
-    final publishedDate =
-        _dateValue('published_at') ??
-            _dateValue('created_at');
+    final color = _typeColor(opportunityType);
 
     return Scaffold(
-      backgroundColor:
-          const Color(0xFFF8F7F4),
+      backgroundColor: const Color(0xFFF7F7F5),
 
       appBar: AppBar(
-        backgroundColor:
-            const Color(0xFFF8F7F4),
-
+        backgroundColor: const Color(0xFFF7F7F5),
         elevation: 0,
-
-        surfaceTintColor:
-            Colors.transparent,
+        surfaceTintColor: Colors.transparent,
 
         leading: IconButton(
           icon: const Icon(
-            Icons.arrow_back_ios_new,
+            Icons.arrow_back,
             color: Color(0xFF1F232B),
           ),
-
           onPressed: () {
             Navigator.of(context).pop();
           },
         ),
 
         title: const Text(
-          'Opportunity',
+          'Opportunity Details',
           style: TextStyle(
             color: Color(0xFF1F232B),
-            fontSize: 21,
             fontWeight: FontWeight.w800,
           ),
         ),
 
-        centerTitle: true,
-
         actions: [
-          if (_isLoadingSaveStatus)
-            const Padding(
-              padding: EdgeInsets.only(
-                right: 16,
-              ),
+          IconButton(
+            onPressed: _isSaving ? null : _toggleSave,
 
-              child: SizedBox(
-                width: 24,
-                height: 24,
+            icon: _isSaving
+                ? const SizedBox(
+                    width: 22,
+                    height: 22,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                    ),
+                  )
+                : Icon(
+                    _isSaved
+                        ? Icons.bookmark
+                        : Icons.bookmark_border,
+                    color: const Color(0xFF1F232B),
+                  ),
+          ),
 
-                child:
-                    CircularProgressIndicator(
-                  strokeWidth: 2,
-                ),
-              ),
-            )
-          else
-            IconButton(
-              onPressed:
-                  _isSaving ? null : _toggleSave,
-
-              icon: Icon(
-                _isSaved
-                    ? Icons.bookmark
-                    : Icons.bookmark_border,
-
-                color: _isSaved
-                    ? _typeColor()
-                    : const Color(
-                        0xFF1F232B,
-                      ),
-
-                size: 28,
-              ),
-            ),
+          const SizedBox(width: 8),
         ],
       ),
 
-      body: SafeArea(
-        top: false,
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(
+          20,
+          8,
+          20,
+          32,
+        ),
 
-        child: SingleChildScrollView(
-          padding:
-              const EdgeInsets.fromLTRB(
-            20,
-            12,
-            20,
-            32,
-          ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
 
-          child: Column(
-            crossAxisAlignment:
-                CrossAxisAlignment.start,
+            // TYPE CARD
 
-            children: [
+            Container(
+              padding: const EdgeInsets.all(20),
 
-              // OPPORTUNITY TYPE
+              decoration: BoxDecoration(
+                color: color.withOpacity(0.10),
+                borderRadius: BorderRadius.circular(24),
+              ),
 
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(
-                  horizontal: 14,
-                  vertical: 8,
-                ),
+              child: Row(
+                children: [
 
-                decoration: BoxDecoration(
-                  color:
-                      _typeColor().withOpacity(
-                    0.12,
+                  Container(
+                    width: 58,
+                    height: 58,
+
+                    decoration: BoxDecoration(
+                      color: color.withOpacity(0.18),
+                      shape: BoxShape.circle,
+                    ),
+
+                    child: Icon(
+                      _typeIcon(opportunityType),
+                      color: color,
+                      size: 30,
+                    ),
                   ),
 
-                  borderRadius:
-                      BorderRadius.circular(20),
-                ),
+                  const SizedBox(width: 16),
 
-                child: Row(
-                  mainAxisSize:
-                      MainAxisSize.min,
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment:
+                          CrossAxisAlignment.start,
+                      children: [
 
-                  children: [
+                        Text(
+                          opportunityType.toUpperCase(),
+                          style: TextStyle(
+                            color: color,
+                            fontSize: 12,
+                            fontWeight:
+                                FontWeight.w800,
+                            letterSpacing: 1.2,
+                          ),
+                        ),
 
-                    Icon(
-                      _typeIcon(),
-                      size: 18,
-                      color: _typeColor(),
-                    ),
+                        const SizedBox(height: 5),
 
-                    const SizedBox(
-                      width: 8,
-                    ),
-
-                    Text(
-                      opportunityType,
-                      style: TextStyle(
-                        color: _typeColor(),
-                        fontWeight:
-                            FontWeight.w700,
-                        fontSize: 14,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-
-              const SizedBox(
-                height: 18,
-              ),
-
-              // TITLE
-
-              Text(
-                title,
-                style: const TextStyle(
-                  fontSize: 30,
-                  height: 1.15,
-                  fontWeight:
-                      FontWeight.w900,
-                  color: Color(
-                    0xFF1F232B,
-                  ),
-                ),
-              ),
-
-              const SizedBox(
-                height: 22,
-              ),
-
-              // ORGANISATION CARD
-
-              Container(
-                width: double.infinity,
-
-                padding:
-                    const EdgeInsets.all(18),
-
-                decoration: BoxDecoration(
-                  color: Colors.white,
-
-                  borderRadius:
-                      BorderRadius.circular(20),
-
-                  boxShadow: const [
-                    BoxShadow(
-                      color:
-                          Color(0x0D000000),
-                      blurRadius: 18,
-                      offset: Offset(
-                        0,
-                        6,
-                      ),
-                    ),
-                  ],
-                ),
-
-                child: Column(
-                  children: [
-
-                    _InfoRow(
-                      icon:
-                          Icons.business_outlined,
-
-                      title:
-                          'Organisation',
-
-                      value:
+                        Text(
                           organisation,
-                    ),
-
-                    const SizedBox(
-                      height: 18,
-                    ),
-
-                    _InfoRow(
-                      icon: Icons
-                          .location_on_outlined,
-
-                      title: 'Location',
-
-                      value: location,
-                    ),
-
-                    if (publishedDate !=
-                        null) ...[
-                      const SizedBox(
-                        height: 18,
-                      ),
-
-                      _InfoRow(
-                        icon:
-                            Icons
-                                .calendar_today_outlined,
-
-                        title:
-                            'Published',
-
-                        value:
-                            _formatDateTime(
-                          publishedDate,
+                          style: const TextStyle(
+                            color: Color(0xFF1F232B),
+                            fontSize: 17,
+                            fontWeight:
+                                FontWeight.w700,
+                          ),
                         ),
-                      ),
-                    ],
-
-                    if (closingDate !=
-                        null) ...[
-                      const SizedBox(
-                        height: 18,
-                      ),
-
-                      _InfoRow(
-                        icon:
-                            Icons
-                                .event_busy_outlined,
-
-                        title:
-                            'Closing date',
-
-                        value:
-                            _formatDate(
-                          closingDate,
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-
-              const SizedBox(
-                height: 26,
-              ),
-
-              // DESCRIPTION
-
-              const Text(
-                'About this opportunity',
-                style: TextStyle(
-                  fontSize: 21,
-                  fontWeight:
-                      FontWeight.w800,
-                  color: Color(
-                    0xFF1F232B,
-                  ),
-                ),
-              ),
-
-              const SizedBox(
-                height: 12,
-              ),
-
-              Text(
-                description,
-                style: const TextStyle(
-                  fontSize: 16,
-                  height: 1.6,
-                  color: Color(
-                    0xFF4B5563,
-                  ),
-                ),
-              ),
-
-              const SizedBox(
-                height: 30,
-              ),
-
-              // APPLICATION LINK
-
-              if (applicationLink
-                  .isNotEmpty) ...[
-
-                const Text(
-                  'How to apply',
-                  style: TextStyle(
-                    fontSize: 21,
-                    fontWeight:
-                        FontWeight.w800,
-                    color: Color(
-                      0xFF1F232B,
+                      ],
                     ),
                   ),
-                ),
+                ],
+              ),
+            ),
 
-                const SizedBox(
-                  height: 12,
-                ),
+            const SizedBox(height: 24),
 
-                Container(
-                  width: double.infinity,
+            // TITLE
 
-                  padding:
-                      const EdgeInsets.all(
-                    16,
-                  ),
+            Text(
+              title,
+              style: const TextStyle(
+                color: Color(0xFF1F232B),
+                fontSize: 30,
+                height: 1.15,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
 
-                  decoration: BoxDecoration(
-                    color: Colors.white,
+            const SizedBox(height: 24),
 
+            // INFORMATION
+
+            _InfoCard(
+              icon: Icons.business_outlined,
+              label: 'Organisation',
+              value: organisation,
+            ),
+
+            const SizedBox(height: 12),
+
+            _InfoCard(
+              icon: Icons.location_on_outlined,
+              label: 'Location',
+              value: location,
+            ),
+
+            const SizedBox(height: 12),
+
+            if (deadline != null)
+              _InfoCard(
+                icon: Icons.calendar_today_outlined,
+                label: 'Closing date',
+                value: _formatDate(deadline),
+              ),
+
+            if (deadline != null)
+              const SizedBox(height: 28),
+
+            if (deadline == null)
+              const SizedBox(height: 16),
+
+            // DESCRIPTION
+
+            const Text(
+              'About this opportunity',
+              style: TextStyle(
+                color: Color(0xFF1F232B),
+                fontSize: 22,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+
+            const SizedBox(height: 12),
+
+            Text(
+              description,
+              style: const TextStyle(
+                color: Color(0xFF4B5563),
+                fontSize: 16,
+                height: 1.6,
+              ),
+            ),
+
+            const SizedBox(height: 32),
+
+            // SAVE BUTTON
+
+            SizedBox(
+              width: double.infinity,
+              height: 56,
+
+              child: ElevatedButton.icon(
+                onPressed: _isSaving
+                    ? null
+                    : _toggleSave,
+
+                style: ElevatedButton.styleFrom(
+                  backgroundColor:
+                      _isSaved
+                          ? const Color(0xFFE5E7EB)
+                          : const Color(0xFF1F4F7C),
+
+                  foregroundColor:
+                      _isSaved
+                          ? const Color(0xFF1F232B)
+                          : Colors.white,
+
+                  elevation: 0,
+
+                  shape: RoundedRectangleBorder(
                     borderRadius:
-                        BorderRadius.circular(
-                      18,
-                    ),
-
-                    border: Border.all(
-                      color: const Color(
-                        0xFFE5E7EB,
-                      ),
-                    ),
-                  ),
-
-                  child: Column(
-                    crossAxisAlignment:
-                        CrossAxisAlignment
-                            .start,
-
-                    children: [
-
-                      const Row(
-                        children: [
-
-                          Icon(
-                            Icons
-                                .link_outlined,
-                            color: Color(
-                              0xFF1F6B4F,
-                            ),
-                          ),
-
-                          SizedBox(
-                            width: 8,
-                          ),
-
-                          Text(
-                            'Application link',
-                            style: TextStyle(
-                              fontWeight:
-                                  FontWeight
-                                      .w700,
-                              fontSize: 15,
-                            ),
-                          ),
-                        ],
-                      ),
-
-                      const SizedBox(
-                        height: 12,
-                      ),
-
-                      SelectableText(
-                        applicationLink,
-                        style:
-                            const TextStyle(
-                          color: Color(
-                            0xFF1F6B4F,
-                          ),
-                          fontSize: 14,
-                          height: 1.4,
-                        ),
-                      ),
-
-                      const SizedBox(
-                        height: 14,
-                      ),
-
-                      OutlinedButton.icon(
-                        onPressed:
-                            _copyApplicationLink,
-
-                        icon: const Icon(
-                          Icons.copy_outlined,
-                        ),
-
-                        label: const Text(
-                          'Copy application link',
-                        ),
-                      ),
-                    ],
+                        BorderRadius.circular(16),
                   ),
                 ),
-              ],
 
-              const SizedBox(
-                height: 32,
-              ),
+                icon: Icon(
+                  _isSaved
+                      ? Icons.bookmark
+                      : Icons.bookmark_border,
+                ),
 
-              // SAVE BUTTON
+                label: Text(
+                  _isSaved
+                      ? 'Saved Opportunity'
+                      : 'Save Opportunity',
 
-              SizedBox(
-                width: double.infinity,
-                height: 56,
-
-                child: ElevatedButton.icon(
-                  onPressed:
-                      _isSaving ||
-                              _isLoadingSaveStatus
-                          ? null
-                          : _toggleSave,
-
-                  icon: _isSaving
-                      ? const SizedBox(
-                          width: 20,
-                          height: 20,
-
-                          child:
-                              CircularProgressIndicator(
-                            color:
-                                Colors.white,
-                            strokeWidth: 2,
-                          ),
-                        )
-                      : Icon(
-                          _isSaved
-                              ? Icons.bookmark
-                              : Icons
-                                  .bookmark_border,
-                        ),
-
-                  label: Text(
-                    _isSaved
-                        ? 'Saved Opportunity'
-                        : 'Save Opportunity',
-                  ),
-
-                  style:
-                      ElevatedButton.styleFrom(
-                    backgroundColor:
-                        _isSaved
-                            ? const Color(
-                                0xFF1F6B4F,
-                              )
-                            : const Color(
-                                0xFF1F232B,
-                              ),
-
-                    foregroundColor:
-                        Colors.white,
-
-                    elevation: 0,
-
-                    shape:
-                        RoundedRectangleBorder(
-                      borderRadius:
-                          BorderRadius.circular(
-                        16,
-                      ),
-                    ),
-
-                    textStyle:
-                        const TextStyle(
-                      fontSize: 16,
-                      fontWeight:
-                          FontWeight.w800,
-                    ),
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w800,
                   ),
                 ),
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
   }
 }
 
-class _InfoRow extends StatelessWidget {
+class _InfoCard extends StatelessWidget {
   final IconData icon;
-  final String title;
+  final String label;
   final String value;
 
-  const _InfoRow({
+  const _InfoCard({
     required this.icon,
-    required this.title,
+    required this.label,
     required this.value,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      crossAxisAlignment:
-          CrossAxisAlignment.start,
+    return Container(
+      width: double.infinity,
 
-      children: [
+      padding: const EdgeInsets.all(16),
 
-        Container(
-          width: 42,
-          height: 42,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
 
-          decoration: BoxDecoration(
-            color:
-                const Color(0xFF1F6B4F)
-                    .withOpacity(0.10),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x0D000000),
+            blurRadius: 12,
+            offset: Offset(0, 4),
+          ),
+        ],
+      ),
 
-            borderRadius:
-                BorderRadius.circular(12),
+      child: Row(
+        crossAxisAlignment:
+            CrossAxisAlignment.start,
+
+        children: [
+
+          Container(
+            width: 44,
+            height: 44,
+
+            decoration: const BoxDecoration(
+              color: Color(0xFFEAF0F5),
+              shape: BoxShape.circle,
+            ),
+
+            child: Icon(
+              icon,
+              color: Color(0xFF1F4F7C),
+              size: 22,
+            ),
           ),
 
-          child: Icon(
-            icon,
-            color:
-                const Color(0xFF1F6B4F),
-            size: 21,
-          ),
-        ),
+          const SizedBox(width: 14),
 
-        const SizedBox(
-          width: 14,
-        ),
+          Expanded(
+            child: Column(
+              crossAxisAlignment:
+                  CrossAxisAlignment.start,
+              children: [
 
-        Expanded(
-          child: Column(
-            crossAxisAlignment:
-                CrossAxisAlignment.start,
-
-            children: [
-
-              Text(
-                title,
-                style: const TextStyle(
-                  color:
-                      Color(0xFF6B7280),
-                  fontSize: 13,
-                  fontWeight:
-                      FontWeight.w600,
+                Text(
+                  label,
+                  style: const TextStyle(
+                    color: Color(0xFF6B7280),
+                    fontSize: 13,
+                    fontWeight:
+                        FontWeight.w600,
+                  ),
                 ),
-              ),
 
-              const SizedBox(
-                height: 4,
-              ),
+                const SizedBox(height: 4),
 
-              Text(
-                value,
-                style: const TextStyle(
-                  color:
-                      Color(0xFF1F232B),
-                  fontSize: 16,
-                  height: 1.3,
-                  fontWeight:
-                      FontWeight.w700,
+                Text(
+                  value,
+                  style: const TextStyle(
+                    color: Color(0xFF1F232B),
+                    fontSize: 16,
+                    fontWeight:
+                        FontWeight.w700,
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }
