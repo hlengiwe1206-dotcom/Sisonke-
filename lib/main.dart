@@ -11,12 +11,13 @@ import 'screens/profile_screen.dart';
 import 'screens/create_help_request_screen.dart';
 import 'screens/help_exchange_screen.dart';
 import 'screens/opportunities_screen.dart';
+import 'screens/saved_opportunities_screen.dart';
 import 'screens/notifications_screen.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Initialize the LIVE Sisonke Supabase backend.
+  // Initialize the live Sisonke Supabase backend.
   await Supabase.initialize(
     url: SupabaseConfig.url,
     anonKey: SupabaseConfig.anonKey,
@@ -33,11 +34,10 @@ class SisonkeApp extends StatelessWidget {
     return MaterialApp(
       title: 'Sisonke',
       debugShowCheckedModeBanner: false,
-
       theme: sisonkeTheme(),
 
-      // AuthGate automatically decides whether the user
-      // should see the login screen or enter the application.
+      // Automatically determines whether the user should
+      // enter the application or see the authentication screen.
       home: const AuthGate(),
 
       routes: {
@@ -53,10 +53,15 @@ class SisonkeApp extends StatelessWidget {
         '/help-exchange': (context) =>
             const HelpExchangeScreen(),
 
+        // Universal Opportunities hub.
         '/opportunities': (context) =>
             const OpportunitiesScreen(),
 
-        // LIVE NOTIFICATIONS SCREEN
+        // Saved opportunities.
+        '/saved-opportunities': (context) =>
+            const SavedOpportunitiesScreen(),
+
+        // Live notifications.
         '/notifications': (context) =>
             const NotificationsScreen(),
       },
@@ -70,17 +75,10 @@ class SisonkeApp extends StatelessWidget {
   }
 }
 
+/// AuthGate listens for Supabase authentication changes.
 ///
-/// AUTH GATE
-///
-/// Automatically listens to Supabase authentication.
-///
-/// - Not signed in -> AuthScreen
-/// - Signed in -> HomeScreen
-///
-/// This is important because notifications belong
-/// to the currently authenticated user.
-///
+/// - No authenticated user -> AuthScreen
+/// - Authenticated user -> HomeScreen
 class AuthGate extends StatelessWidget {
   const AuthGate({super.key});
 
@@ -88,18 +86,14 @@ class AuthGate extends StatelessWidget {
   Widget build(BuildContext context) {
     return StreamBuilder<AuthState>(
       stream: Supabase.instance.client.auth.onAuthStateChange,
-
       builder: (context, snapshot) {
-        // Check the current session immediately.
         final session =
             Supabase.instance.client.auth.currentSession;
 
-        // User is already signed in.
         if (session != null) {
           return const HomeScreen();
         }
 
-        // No authenticated user.
         return const AuthScreen();
       },
     );
