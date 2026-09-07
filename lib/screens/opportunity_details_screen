@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 class OpportunityDetailsScreen extends StatefulWidget {
@@ -18,181 +19,87 @@ class _OpportunityDetailsScreenState
     extends State<OpportunityDetailsScreen> {
   final SupabaseClient _supabase = Supabase.instance.client;
 
+  bool _isSaved = false;
   bool _isLoadingSaveStatus = true;
   bool _isSaving = false;
-  bool _isSaved = false;
+
+  Map<String, dynamic> get opportunity => widget.opportunity;
 
   @override
   void initState() {
     super.initState();
-    _loadSavedStatus();
+    _loadSaveStatus();
   }
 
-  String get _opportunityId =>
-      widget.opportunity['id']?.toString() ?? '';
-
-  String _getString(
-    List<String> columns, {
-    String fallback = '',
-  }) {
-    for (final column in columns) {
-      final value = widget.opportunity[column];
-
-      if (value != null &&
-          value.toString().trim().isNotEmpty) {
-        return value.toString().trim();
-      }
-    }
-
-    return fallback;
-  }
-
-  String get _title => _getString(
-        [
-          'title',
-          'name',
-          'opportunity_title',
-        ],
-        fallback: 'Untitled Opportunity',
-      );
-
-  String get _description => _getString(
-        [
-          'description',
-          'summary',
-          'details',
-        ],
-      );
-
-  String get _organisation => _getString(
-        [
-          'organisation',
-          'organization',
-          'company',
-          'provider',
-        ],
-      );
-
-  String get _location => _getString(
-        [
-          'location',
-          'province',
-          'city',
-        ],
-      );
-
-  String get _category => _getString(
-        [
-          'category',
-          'opportunity_type',
-          'type',
-        ],
-        fallback: 'Opportunity',
-      );
-
-  String get _applicationUrl => _getString(
-        [
-          'application_url',
-          'source_url',
-          'url',
-          'link',
-        ],
-      );
-
-  DateTime? _getDate(
-    List<String> columns,
-  ) {
-    for (final column in columns) {
-      final value = widget.opportunity[column];
-
-      if (value == null) continue;
-
-      final parsed =
-          DateTime.tryParse(value.toString());
-
-      if (parsed != null) {
-        return parsed.toLocal();
-      }
-    }
-
-    return null;
-  }
-
-  DateTime? get _closingDate => _getDate(
-        [
-          'closing_date',
-          'deadline',
-          'application_deadline',
-          'expiry_date',
-        ],
-      );
-
-  DateTime? get _briefingDate => _getDate(
-        [
-          'briefing_date',
-        ],
-      );
-
-  Future<void> _loadSavedStatus() async {
-    final user = _supabase.auth.currentUser;
-
-    if (user == null || _opportunityId.isEmpty) {
-      if (!mounted) return;
-
-      setState(() {
-        _isLoadingSaveStatus = false;
-      });
-
-      return;
-    }
-
+  Future<void> _loadSaveStatus() async {
     try {
-      final response = await _supabase
+      final user = _supabase.auth.currentUser;
+
+      if (user == null) {
+        if (mounted) {
+          setState(() {
+            _isSaved = false;
+            _isLoadingSaveStatus = false;
+          });
+        }
+        return;
+      }
+
+      final opportunityId = opportunity['id'];
+
+      if (opportunityId == null) {
+        if (mounted) {
+          setState(() {
+            _isSaved = false;
+            _isLoadingSaveStatus = false;
+          });
+        }
+        return;
+      }
+
+      final result = await _supabase
           .from('opportunity_saves')
           .select('id')
           .eq('user_id', user.id)
-          .eq('opportunity_id', _opportunityId)
+          .eq('opportunity_id', opportunityId)
           .maybeSingle();
 
       if (!mounted) return;
 
       setState(() {
-        _isSaved = response != null;
+        _isSaved = result != null;
         _isLoadingSaveStatus = false;
       });
     } catch (_) {
       if (!mounted) return;
 
       setState(() {
+        _isSaved = false;
         _isLoadingSaveStatus = false;
       });
     }
   }
 
   Future<void> _toggleSave() async {
+    if (_isSaving) return;
+
     final user = _supabase.auth.currentUser;
 
     if (user == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Please sign in to save opportunities.',
-          ),
-        ),
+      _showMessage(
+        'Please sign in to save opportunities.',
+        isError: true,
       );
-
       return;
     }
 
-    if (_opportunityId.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Unable to save this opportunity.',
-          ),
-        ),
-      );
+    final opportunityId = opportunity['id'];
 
+    if (opportunityId == null) {
+      _showMessage(
+        'This opportunity could not be saved.',
+        isError: true,
+      );
       return;
     }
 
@@ -206,10 +113,7 @@ class _OpportunityDetailsScreenState
             .from('opportunity_saves')
             .delete()
             .eq('user_id', user.id)
-            .eq(
-              'opportunity_id',
-              _opportunityId,
-            );
+            .eq('opportunity_id', opportunityId);
 
         if (!mounted) return;
 
@@ -217,19 +121,13 @@ class _OpportunityDetailsScreenState
           _isSaved = false;
         });
 
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Opportunity removed from saved items.',
-            ),
-          ),
+        _showMessage(
+          'Opportunity removed from saved opportunities.',
         );
       } else {
-        await _supabase
-            .from('opportunity_saves')
-            .insert({
+        await _supabase.from('opportunity_saves').insert({
           'user_id': user.id,
-          'opportunity_id': _opportunityId,
+          'opportunity_id': opportunityId,
         });
 
         if (!mounted) return;
@@ -238,23 +136,14 @@ class _OpportunityDetailsScreenState
           _isSaved = true;
         });
 
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Opportunity saved successfully.',
-            ),
-          ),
+        _showMessage(
+          'Opportunity saved successfully.',
         );
       }
-    } catch (error) {
-      if (!mounted) return;
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Unable to update saved opportunity: $error',
-          ),
-        ),
+    } catch (_) {
+      _showMessage(
+        'Something went wrong. Please try again.',
+        isError: true,
       );
     } finally {
       if (mounted) {
@@ -265,103 +154,301 @@ class _OpportunityDetailsScreenState
     }
   }
 
-  String _formatDate(
-    DateTime date,
-  ) {
-    final day =
-        date.day.toString().padLeft(2, '0');
+  void _showMessage(
+    String message, {
+    bool isError = false,
+  }) {
+    if (!mounted) return;
 
-    final month =
-        date.month.toString().padLeft(2, '0');
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
 
-    return '$day/$month/${date.year}';
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor:
+            isError ? const Color(0xFFE9322A) : const Color(0xFF1F6B4F),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
   }
 
-  int _daysRemaining(
-    DateTime date,
-  ) {
-    final now = DateTime.now();
+  String _textValue(
+    String key, {
+    String fallback = '',
+  }) {
+    final value = opportunity[key];
 
-    final today = DateTime(
-      now.year,
-      now.month,
-      now.day,
-    );
+    if (value == null) return fallback;
 
-    final target = DateTime(
-      date.year,
-      date.month,
-      date.day,
-    );
+    final text = value.toString().trim();
 
-    return target
-        .difference(today)
-        .inDays;
+    if (text.isEmpty) return fallback;
+
+    return text;
   }
 
-  IconData _categoryIcon() {
-    switch (_category.toLowerCase()) {
-      case 'tender':
-      case 'tenders':
-      case 'procurement':
-        return Icons.description_outlined;
+  DateTime? _dateValue(String key) {
+    final value = opportunity[key];
 
-      case 'employment':
-      case 'job':
-      case 'jobs':
-        return Icons.work_outline;
+    if (value == null) return null;
 
-      case 'funding':
-      case 'grant':
-      case 'grants':
-        return Icons.account_balance_outlined;
-
-      case 'learnership':
-      case 'learnerships':
-      case 'internship':
-      case 'internships':
-      case 'training':
-      case 'education':
-        return Icons.school_outlined;
-
-      default:
-        return Icons.campaign_outlined;
+    try {
+      return DateTime.parse(value.toString()).toLocal();
+    } catch (_) {
+      return null;
     }
+  }
+
+  String _formatDate(DateTime? date) {
+    if (date == null) return '';
+
+    const months = [
+      'January',
+      'February',
+      'March',
+      'April',
+      'May',
+      'June',
+      'July',
+      'August',
+      'September',
+      'October',
+      'November',
+      'December',
+    ];
+
+    return '${date.day} ${months[date.month - 1]} ${date.year}';
+  }
+
+  String _formatDateTime(DateTime? date) {
+    if (date == null) return '';
+
+    const months = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
+
+    final hour =
+        date.hour.toString().padLeft(2, '0');
+
+    final minute =
+        date.minute.toString().padLeft(2, '0');
+
+    return '${date.day} ${months[date.month - 1]} ${date.year} '
+        '$hour:$minute';
+  }
+
+  String _opportunityType() {
+    final possibleKeys = [
+      'type',
+      'category',
+      'opportunity_category',
+      'opportunity_type',
+    ];
+
+    for (final key in possibleKeys) {
+      final value = _textValue(key);
+
+      if (value.isNotEmpty) {
+        return value;
+      }
+    }
+
+    return 'Opportunity';
+  }
+
+  IconData _typeIcon() {
+    final type = _opportunityType().toLowerCase();
+
+    if (type.contains('tender')) {
+      return Icons.account_balance_outlined;
+    }
+
+    if (type.contains('employment') ||
+        type.contains('job') ||
+        type.contains('career')) {
+      return Icons.work_outline;
+    }
+
+    if (type.contains('learnership') ||
+        type.contains('internship') ||
+        type.contains('education') ||
+        type.contains('training')) {
+      return Icons.school_outlined;
+    }
+
+    if (type.contains('fund') ||
+        type.contains('grant') ||
+        type.contains('finance')) {
+      return Icons.account_balance_wallet_outlined;
+    }
+
+    return Icons.lightbulb_outline;
+  }
+
+  Color _typeColor() {
+    final type = _opportunityType().toLowerCase();
+
+    if (type.contains('tender')) {
+      return const Color(0xFF1F4F7C);
+    }
+
+    if (type.contains('employment') ||
+        type.contains('job') ||
+        type.contains('career')) {
+      return const Color(0xFF3D7A5E);
+    }
+
+    if (type.contains('learnership') ||
+        type.contains('internship') ||
+        type.contains('education') ||
+        type.contains('training')) {
+      return const Color(0xFF6C4BA3);
+    }
+
+    if (type.contains('fund') ||
+        type.contains('grant') ||
+        type.contains('finance')) {
+      return const Color(0xFFB7791F);
+    }
+
+    return const Color(0xFF1F6B4F);
+  }
+
+  Future<void> _copyApplicationLink() async {
+    final link = _findApplicationLink();
+
+    if (link.isEmpty) {
+      _showMessage(
+        'No application link is available.',
+        isError: true,
+      );
+      return;
+    }
+
+    await Clipboard.setData(
+      ClipboardData(text: link),
+    );
+
+    _showMessage(
+      'Application link copied.',
+    );
+  }
+
+  String _findApplicationLink() {
+    final possibleKeys = [
+      'application_url',
+      'application_link',
+      'link',
+      'url',
+      'website',
+    ];
+
+    for (final key in possibleKeys) {
+      final value = _textValue(key);
+
+      if (value.isNotEmpty) {
+        return value;
+      }
+    }
+
+    return '';
   }
 
   @override
   Widget build(BuildContext context) {
-    final closingDate = _closingDate;
-    final briefingDate = _briefingDate;
+    final title = _textValue(
+      'title',
+      fallback: 'Opportunity',
+    );
+
+    final description = _textValue(
+      'description',
+      fallback:
+          'No additional information has been provided for this opportunity.',
+    );
+
+    final organisation = _textValue(
+      'organisation',
+      fallback: 'Organisation not specified',
+    );
+
+    final location = _textValue(
+      'location',
+      fallback: 'Location not specified',
+    );
+
+    final opportunityType =
+        _opportunityType();
+
+    final applicationLink =
+        _findApplicationLink();
+
+    final closingDate =
+        _dateValue('closing_date');
+
+    final publishedDate =
+        _dateValue('published_at') ??
+            _dateValue('created_at');
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF8F7F4),
+      backgroundColor:
+          const Color(0xFFF8F7F4),
 
       appBar: AppBar(
-        backgroundColor: const Color(0xFFF8F7F4),
+        backgroundColor:
+            const Color(0xFFF8F7F4),
+
         elevation: 0,
-        surfaceTintColor: Colors.transparent,
+
+        surfaceTintColor:
+            Colors.transparent,
+
+        leading: IconButton(
+          icon: const Icon(
+            Icons.arrow_back_ios_new,
+            color: Color(0xFF1F232B),
+          ),
+
+          onPressed: () {
+            Navigator.of(context).pop();
+          },
+        ),
 
         title: const Text(
-          'Opportunity Details',
+          'Opportunity',
           style: TextStyle(
             color: Color(0xFF1F232B),
+            fontSize: 21,
             fontWeight: FontWeight.w800,
           ),
         ),
 
-        iconTheme: const IconThemeData(
-          color: Color(0xFF1F232B),
-        ),
+        centerTitle: true,
 
         actions: [
           if (_isLoadingSaveStatus)
             const Padding(
-              padding: EdgeInsets.all(16),
+              padding: EdgeInsets.only(
+                right: 16,
+              ),
+
               child: SizedBox(
-                width: 22,
-                height: 22,
-                child: CircularProgressIndicator(
+                width: 24,
+                height: 24,
+
+                child:
+                    CircularProgressIndicator(
                   strokeWidth: 2,
                 ),
               ),
@@ -375,21 +462,29 @@ class _OpportunityDetailsScreenState
                 _isSaved
                     ? Icons.bookmark
                     : Icons.bookmark_border,
+
                 color: _isSaved
-                    ? const Color(0xFFE9322A)
-                    : const Color(0xFF1F232B),
+                    ? _typeColor()
+                    : const Color(
+                        0xFF1F232B,
+                      ),
+
+                size: 28,
               ),
             ),
         ],
       ),
 
       body: SafeArea(
+        top: false,
+
         child: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(
+          padding:
+              const EdgeInsets.fromLTRB(
             20,
             12,
             20,
-            30,
+            32,
           ),
 
           child: Column(
@@ -397,266 +492,493 @@ class _OpportunityDetailsScreenState
                 CrossAxisAlignment.start,
 
             children: [
-              _buildCategoryHeader(),
 
-              const SizedBox(height: 20),
+              // OPPORTUNITY TYPE
 
-              Text(
-                _title,
-                style: const TextStyle(
-                  fontSize: 30,
-                  height: 1.15,
-                  fontWeight: FontWeight.w900,
-                  color: Color(0xFF1F232B),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 8,
+                ),
+
+                decoration: BoxDecoration(
+                  color:
+                      _typeColor().withOpacity(
+                    0.12,
+                  ),
+
+                  borderRadius:
+                      BorderRadius.circular(20),
+                ),
+
+                child: Row(
+                  mainAxisSize:
+                      MainAxisSize.min,
+
+                  children: [
+
+                    Icon(
+                      _typeIcon(),
+                      size: 18,
+                      color: _typeColor(),
+                    ),
+
+                    const SizedBox(
+                      width: 8,
+                    ),
+
+                    Text(
+                      opportunityType,
+                      style: TextStyle(
+                        color: _typeColor(),
+                        fontWeight:
+                            FontWeight.w700,
+                        fontSize: 14,
+                      ),
+                    ),
+                  ],
                 ),
               ),
 
-              const SizedBox(height: 24),
+              const SizedBox(
+                height: 18,
+              ),
 
-              if (_organisation.isNotEmpty)
-                _buildInfoRow(
-                  Icons.business_outlined,
-                  _organisation,
+              // TITLE
+
+              Text(
+                title,
+                style: const TextStyle(
+                  fontSize: 30,
+                  height: 1.15,
+                  fontWeight:
+                      FontWeight.w900,
+                  color: Color(
+                    0xFF1F232B,
+                  ),
+                ),
+              ),
+
+              const SizedBox(
+                height: 22,
+              ),
+
+              // ORGANISATION CARD
+
+              Container(
+                width: double.infinity,
+
+                padding:
+                    const EdgeInsets.all(18),
+
+                decoration: BoxDecoration(
+                  color: Colors.white,
+
+                  borderRadius:
+                      BorderRadius.circular(20),
+
+                  boxShadow: const [
+                    BoxShadow(
+                      color:
+                          Color(0x0D000000),
+                      blurRadius: 18,
+                      offset: Offset(
+                        0,
+                        6,
+                      ),
+                    ),
+                  ],
                 ),
 
-              if (_location.isNotEmpty)
-                _buildInfoRow(
-                  Icons.location_on_outlined,
-                  _location,
+                child: Column(
+                  children: [
+
+                    _InfoRow(
+                      icon:
+                          Icons.business_outlined,
+
+                      title:
+                          'Organisation',
+
+                      value:
+                          organisation,
+                    ),
+
+                    const SizedBox(
+                      height: 18,
+                    ),
+
+                    _InfoRow(
+                      icon: Icons
+                          .location_on_outlined,
+
+                      title: 'Location',
+
+                      value: location,
+                    ),
+
+                    if (publishedDate !=
+                        null) ...[
+                      const SizedBox(
+                        height: 18,
+                      ),
+
+                      _InfoRow(
+                        icon:
+                            Icons
+                                .calendar_today_outlined,
+
+                        title:
+                            'Published',
+
+                        value:
+                            _formatDateTime(
+                          publishedDate,
+                        ),
+                      ),
+                    ],
+
+                    if (closingDate !=
+                        null) ...[
+                      const SizedBox(
+                        height: 18,
+                      ),
+
+                      _InfoRow(
+                        icon:
+                            Icons
+                                .event_busy_outlined,
+
+                        title:
+                            'Closing date',
+
+                        value:
+                            _formatDate(
+                          closingDate,
+                        ),
+                      ),
+                    ],
+                  ],
                 ),
+              ),
 
-              if (closingDate != null)
-                _buildInfoRow(
-                  Icons.calendar_today_outlined,
-                  _buildClosingText(closingDate),
+              const SizedBox(
+                height: 26,
+              ),
+
+              // DESCRIPTION
+
+              const Text(
+                'About this opportunity',
+                style: TextStyle(
+                  fontSize: 21,
+                  fontWeight:
+                      FontWeight.w800,
+                  color: Color(
+                    0xFF1F232B,
+                  ),
                 ),
+              ),
 
-              if (briefingDate != null)
-                _buildInfoRow(
-                  Icons.event_outlined,
-                  'Briefing: ${_formatDate(briefingDate)}',
+              const SizedBox(
+                height: 12,
+              ),
+
+              Text(
+                description,
+                style: const TextStyle(
+                  fontSize: 16,
+                  height: 1.6,
+                  color: Color(
+                    0xFF4B5563,
+                  ),
                 ),
+              ),
 
-              const SizedBox(height: 24),
+              const SizedBox(
+                height: 30,
+              ),
 
-              if (_description.isNotEmpty) ...[
+              // APPLICATION LINK
+
+              if (applicationLink
+                  .isNotEmpty) ...[
+
                 const Text(
-                  'About this opportunity',
+                  'How to apply',
                   style: TextStyle(
                     fontSize: 21,
-                    fontWeight: FontWeight.w800,
-                    color: Color(0xFF1F232B),
+                    fontWeight:
+                        FontWeight.w800,
+                    color: Color(
+                      0xFF1F232B,
+                    ),
                   ),
                 ),
 
-                const SizedBox(height: 12),
+                const SizedBox(
+                  height: 12,
+                ),
 
-                Text(
-                  _description,
-                  style: const TextStyle(
-                    fontSize: 16,
-                    height: 1.6,
-                    color: Color(0xFF4B5563),
+                Container(
+                  width: double.infinity,
+
+                  padding:
+                      const EdgeInsets.all(
+                    16,
+                  ),
+
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+
+                    borderRadius:
+                        BorderRadius.circular(
+                      18,
+                    ),
+
+                    border: Border.all(
+                      color: const Color(
+                        0xFFE5E7EB,
+                      ),
+                    ),
+                  ),
+
+                  child: Column(
+                    crossAxisAlignment:
+                        CrossAxisAlignment
+                            .start,
+
+                    children: [
+
+                      const Row(
+                        children: [
+
+                          Icon(
+                            Icons
+                                .link_outlined,
+                            color: Color(
+                              0xFF1F6B4F,
+                            ),
+                          ),
+
+                          SizedBox(
+                            width: 8,
+                          ),
+
+                          Text(
+                            'Application link',
+                            style: TextStyle(
+                              fontWeight:
+                                  FontWeight
+                                      .w700,
+                              fontSize: 15,
+                            ),
+                          ),
+                        ],
+                      ),
+
+                      const SizedBox(
+                        height: 12,
+                      ),
+
+                      SelectableText(
+                        applicationLink,
+                        style:
+                            const TextStyle(
+                          color: Color(
+                            0xFF1F6B4F,
+                          ),
+                          fontSize: 14,
+                          height: 1.4,
+                        ),
+                      ),
+
+                      const SizedBox(
+                        height: 14,
+                      ),
+
+                      OutlinedButton.icon(
+                        onPressed:
+                            _copyApplicationLink,
+
+                        icon: const Icon(
+                          Icons.copy_outlined,
+                        ),
+
+                        label: const Text(
+                          'Copy application link',
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ],
 
-              const SizedBox(height: 30),
+              const SizedBox(
+                height: 32,
+              ),
 
-              _buildSaveButton(),
+              // SAVE BUTTON
 
-              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                height: 56,
 
-              if (_applicationUrl.isNotEmpty)
-                _buildApplyButton(),
+                child: ElevatedButton.icon(
+                  onPressed:
+                      _isSaving ||
+                              _isLoadingSaveStatus
+                          ? null
+                          : _toggleSave,
 
-              const SizedBox(height: 20),
+                  icon: _isSaving
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+
+                          child:
+                              CircularProgressIndicator(
+                            color:
+                                Colors.white,
+                            strokeWidth: 2,
+                          ),
+                        )
+                      : Icon(
+                          _isSaved
+                              ? Icons.bookmark
+                              : Icons
+                                  .bookmark_border,
+                        ),
+
+                  label: Text(
+                    _isSaved
+                        ? 'Saved Opportunity'
+                        : 'Save Opportunity',
+                  ),
+
+                  style:
+                      ElevatedButton.styleFrom(
+                    backgroundColor:
+                        _isSaved
+                            ? const Color(
+                                0xFF1F6B4F,
+                              )
+                            : const Color(
+                                0xFF1F232B,
+                              ),
+
+                    foregroundColor:
+                        Colors.white,
+
+                    elevation: 0,
+
+                    shape:
+                        RoundedRectangleBorder(
+                      borderRadius:
+                          BorderRadius.circular(
+                        16,
+                      ),
+                    ),
+
+                    textStyle:
+                        const TextStyle(
+                      fontSize: 16,
+                      fontWeight:
+                          FontWeight.w800,
+                    ),
+                  ),
+                ),
+              ),
             ],
           ),
         ),
       ),
     );
   }
+}
 
-  Widget _buildCategoryHeader() {
-    return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: 14,
-        vertical: 10,
-      ),
+class _InfoRow extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String value;
 
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
-      ),
+  const _InfoRow({
+    required this.icon,
+    required this.title,
+    required this.value,
+  });
 
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(
-            _categoryIcon(),
-            size: 20,
-            color: const Color(0xFF1F232B),
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment:
+          CrossAxisAlignment.start,
+
+      children: [
+
+        Container(
+          width: 42,
+          height: 42,
+
+          decoration: BoxDecoration(
+            color:
+                const Color(0xFF1F6B4F)
+                    .withOpacity(0.10),
+
+            borderRadius:
+                BorderRadius.circular(12),
           ),
 
-          const SizedBox(width: 8),
-
-          Text(
-            _category,
-            style: const TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.w800,
-              color: Color(0xFF1F232B),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildInfoRow(
-    IconData icon,
-    String text,
-  ) {
-    return Padding(
-      padding: const EdgeInsets.only(
-        bottom: 14,
-      ),
-
-      child: Row(
-        crossAxisAlignment:
-            CrossAxisAlignment.start,
-
-        children: [
-          Icon(
+          child: Icon(
             icon,
+            color:
+                const Color(0xFF1F6B4F),
             size: 21,
-            color: const Color(0xFF6B7280),
           ),
+        ),
 
-          const SizedBox(width: 12),
+        const SizedBox(
+          width: 14,
+        ),
 
-          Expanded(
-            child: Text(
-              text,
-              style: const TextStyle(
-                fontSize: 15,
-                color: Color(0xFF4B5563),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+        Expanded(
+          child: Column(
+            crossAxisAlignment:
+                CrossAxisAlignment.start,
 
-  String _buildClosingText(
-    DateTime date,
-  ) {
-    final days = _daysRemaining(date);
+            children: [
 
-    if (days < 0) {
-      return 'Closed';
-    }
-
-    if (days == 0) {
-      return 'Closing today';
-    }
-
-    if (days == 1) {
-      return 'Closing tomorrow';
-    }
-
-    return 'Closing ${_formatDate(date)} • $days days remaining';
-  }
-
-  Widget _buildSaveButton() {
-    return SizedBox(
-      width: double.infinity,
-      height: 54,
-
-      child: ElevatedButton.icon(
-        onPressed:
-            _isSaving ? null : _toggleSave,
-
-        icon: _isSaving
-            ? const SizedBox(
-                width: 20,
-                height: 20,
-                child:
-                    CircularProgressIndicator(
-                  strokeWidth: 2,
-                  color: Colors.white,
+              Text(
+                title,
+                style: const TextStyle(
+                  color:
+                      Color(0xFF6B7280),
+                  fontSize: 13,
+                  fontWeight:
+                      FontWeight.w600,
                 ),
-              )
-            : Icon(
-                _isSaved
-                    ? Icons.bookmark
-                    : Icons.bookmark_border,
               ),
 
-        label: Text(
-          _isSaved
-              ? 'Saved Opportunity'
-              : 'Save Opportunity',
-        ),
-
-        style: ElevatedButton.styleFrom(
-          backgroundColor:
-              const Color(0xFF1F232B),
-
-          foregroundColor: Colors.white,
-
-          elevation: 0,
-
-          shape: RoundedRectangleBorder(
-            borderRadius:
-                BorderRadius.circular(16),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildApplyButton() {
-    return SizedBox(
-      width: double.infinity,
-      height: 54,
-
-      child: OutlinedButton.icon(
-        onPressed: () {
-          ScaffoldMessenger.of(context)
-              .showSnackBar(
-            SnackBar(
-              content: Text(
-                'Application link: $_applicationUrl',
+              const SizedBox(
+                height: 4,
               ),
-            ),
-          );
-        },
 
-        icon: const Icon(
-          Icons.open_in_new,
-        ),
-
-        label: const Text(
-          'View / Apply',
-        ),
-
-        style: OutlinedButton.styleFrom(
-          foregroundColor:
-              const Color(0xFF1F232B),
-
-          side: const BorderSide(
-            color: Color(0xFF1F232B),
-          ),
-
-          shape: RoundedRectangleBorder(
-            borderRadius:
-                BorderRadius.circular(16),
+              Text(
+                value,
+                style: const TextStyle(
+                  color:
+                      Color(0xFF1F232B),
+                  fontSize: 16,
+                  height: 1.3,
+                  fontWeight:
+                      FontWeight.w700,
+                ),
+              ),
+            ],
           ),
         ),
-      ),
+      ],
     );
   }
 }
