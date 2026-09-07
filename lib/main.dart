@@ -11,13 +11,13 @@ import 'screens/profile_screen.dart';
 import 'screens/create_help_request_screen.dart';
 import 'screens/help_exchange_screen.dart';
 import 'screens/opportunities_screen.dart';
+import 'screens/opportunity_details_screen.dart';
 import 'screens/saved_opportunities_screen.dart';
 import 'screens/notifications_screen.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Initialize the live Sisonke Supabase backend.
   await Supabase.initialize(
     url: SupabaseConfig.url,
     anonKey: SupabaseConfig.anonKey,
@@ -36,8 +36,6 @@ class SisonkeApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       theme: sisonkeTheme(),
 
-      // Automatically determines whether the user should
-      // enter the application or see the authentication screen.
       home: const AuthGate(),
 
       routes: {
@@ -53,15 +51,12 @@ class SisonkeApp extends StatelessWidget {
         '/help-exchange': (context) =>
             const HelpExchangeScreen(),
 
-        // Universal Opportunities hub.
         '/opportunities': (context) =>
             const OpportunitiesScreen(),
 
-        // Saved opportunities.
         '/saved-opportunities': (context) =>
             const SavedOpportunitiesScreen(),
 
-        // Live notifications.
         '/notifications': (context) =>
             const NotificationsScreen(),
       },
@@ -75,10 +70,6 @@ class SisonkeApp extends StatelessWidget {
   }
 }
 
-/// AuthGate listens for Supabase authentication changes.
-///
-/// - No authenticated user -> AuthScreen
-/// - Authenticated user -> HomeScreen
 class AuthGate extends StatelessWidget {
   const AuthGate({super.key});
 
