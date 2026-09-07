@@ -1,24 +1,20 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-import 'opportunity_details_screen.dart';
-import 'saved_opportunities_screen.dart';
-
 class OpportunitiesScreen extends StatefulWidget {
   const OpportunitiesScreen({super.key});
 
   @override
-  State<OpportunitiesScreen> createState() =>
-      _OpportunitiesScreenState();
+  State<OpportunitiesScreen> createState() => _OpportunitiesScreenState();
 }
 
-class _OpportunitiesScreenState
-    extends State<OpportunitiesScreen> {
-  final SupabaseClient _supabase =
-      Supabase.instance.client;
+class _OpportunitiesScreenState extends State<OpportunitiesScreen> {
+  final SupabaseClient _supabase = Supabase.instance.client;
 
-  late Future<List<Map<String, dynamic>>>
-      _opportunitiesFuture;
+  bool _isLoading = true;
+  String? _errorMessage;
+
+  List<Map<String, dynamic>> _opportunities = [];
 
   String _selectedCategory = 'All';
 
@@ -27,529 +23,364 @@ class _OpportunitiesScreenState
     'Jobs',
     'Tenders',
     'Funding',
-    'Learnerships',
     'Training',
-    'Business',
-    'Education',
+    'Learnerships',
   ];
 
   @override
   void initState() {
     super.initState();
-
-    _opportunitiesFuture =
-        _loadOpportunities();
+    _loadOpportunities();
   }
 
-  Future<List<Map<String, dynamic>>>
-      _loadOpportunities() async {
-    try {
-      final response = await _supabase
-          .from('opportunities')
-          .select()
-          .eq('is_published', true)
-          .order(
-            'created_at',
-            ascending: false,
-          );
+  Future<void> _loadOpportunities() async {
+    if (!mounted) return;
 
-      return List<Map<String, dynamic>>.from(
-        response,
-      );
-    } catch (error) {
-      throw Exception(
-        'Unable to load opportunities: $error',
-      );
-    }
-  }
-
-  Future<void> _refreshOpportunities() async {
     setState(() {
-      _opportunitiesFuture =
-          _loadOpportunities();
+      _isLoading = true;
+      _errorMessage = null;
     });
 
-    await _opportunitiesFuture;
+    try {
+      debugPrint('SISONKE: Loading opportunities from Supabase...');
+
+      final response = await _supabase
+          .from('opportunities')
+          .select();
+
+      final opportunities =
+          List<Map<String, dynamic>>.from(response);
+
+      debugPrint(
+        'SISONKE: ${opportunities.length} opportunities loaded.',
+      );
+
+      if (!mounted) return;
+
+      setState(() {
+        _opportunities = opportunities;
+        _isLoading = false;
+      });
+    } on PostgrestException catch (error) {
+      debugPrint(
+        'SISONKE SUPABASE ERROR: '
+        '${error.message}',
+      );
+
+      if (!mounted) return;
+
+      setState(() {
+        _errorMessage =
+            'Unable to load opportunities.\n\n'
+            '${error.message}';
+
+        _isLoading = false;
+      });
+    } catch (error) {
+      debugPrint(
+        'SISONKE UNKNOWN ERROR: $error',
+      );
+
+      if (!mounted) return;
+
+      setState(() {
+        _errorMessage =
+            'Something went wrong while loading opportunities.\n\n'
+            '$error';
+
+        _isLoading = false;
+      });
+    }
   }
 
-  String _getString(
-    Map<String, dynamic> opportunity,
-    List<String> keys, {
-    String fallback = '',
-  }) {
-    for (final key in keys) {
-      final value =
-          opportunity[key];
-
-      if (value != null &&
-          value
-              .toString()
-              .trim()
-              .isNotEmpty) {
-        return value
-            .toString()
-            .trim();
-      }
+  List<Map<String, dynamic>> get _filteredOpportunities {
+    if (_selectedCategory == 'All') {
+      return _opportunities;
     }
 
-    return fallback;
+    return _opportunities.where((opportunity) {
+      final category = _readCategory(opportunity);
+
+      return category
+          .toLowerCase()
+          .contains(_selectedCategory.toLowerCase());
+    }).toList();
   }
 
-  bool _getBool(
-    Map<String, dynamic> opportunity,
-    List<String> keys, {
-    bool fallback = false,
-  }) {
-    for (final key in keys) {
-      final value =
-          opportunity[key];
-
-      if (value == null) {
-        continue;
-      }
-
-      if (value is bool) {
-        return value;
-      }
-
-      final text =
-          value
-              .toString()
-              .trim()
-              .toLowerCase();
-
-      return text == 'true' ||
-          text == '1' ||
-          text == 'yes';
-    }
-
-    return fallback;
-  }
-
-  String _title(
+  String _readCategory(
     Map<String, dynamic> opportunity,
   ) {
-    return _getString(
+    final possibleValues = [
+      opportunity['category'],
+      opportunity['type'],
+      opportunity['opportunity_type'],
+      opportunity['opportunity_category'],
+    ];
+
+    for (final value in possibleValues) {
+      if (value != null &&
+          value.toString().trim().isNotEmpty) {
+        return value.toString();
+      }
+    }
+
+    return 'Other';
+  }
+
+  String _readTitle(
+    Map<String, dynamic> opportunity,
+  ) {
+    return _firstAvailableValue(
       opportunity,
       [
         'title',
         'name',
         'opportunity_title',
       ],
-      fallback:
-          'Untitled Opportunity',
+      fallback: 'Untitled Opportunity',
     );
   }
 
-  String _description(
+  String _readDescription(
     Map<String, dynamic> opportunity,
   ) {
-    return _getString(
+    return _firstAvailableValue(
       opportunity,
       [
         'description',
-        'summary',
         'details',
+        'summary',
       ],
+      fallback: 'No description available.',
     );
   }
 
-  String _category(
+  String _readOrganisation(
     Map<String, dynamic> opportunity,
   ) {
-    return _getString(
-      opportunity,
-      [
-        'category',
-        'type',
-      ],
-      fallback:
-          'Opportunity',
-    );
-  }
-
-  String _organisation(
-    Map<String, dynamic> opportunity,
-  ) {
-    return _getString(
+    return _firstAvailableValue(
       opportunity,
       [
         'organisation',
         'organization',
         'company',
         'provider',
-        'source',
       ],
+      fallback: 'Organisation not specified',
     );
   }
 
-  String _location(
+  String _readLocation(
     Map<String, dynamic> opportunity,
   ) {
-    return _getString(
+    return _firstAvailableValue(
       opportunity,
       [
         'location',
         'province',
         'city',
       ],
+      fallback: '',
     );
   }
 
-  DateTime? _closingDate(
+  String _firstAvailableValue(
     Map<String, dynamic> opportunity,
-  ) {
-    const possibleKeys = [
-      'closing_date',
-      'deadline',
-      'application_deadline',
-      'expiry_date',
-    ];
+    List<String> keys, {
+    required String fallback,
+  }) {
+    for (final key in keys) {
+      final value = opportunity[key];
 
-    for (final key in possibleKeys) {
-      final value =
-          opportunity[key];
-
-      if (value == null) {
-        continue;
-      }
-
-      final date =
-          DateTime.tryParse(
-        value.toString(),
-      );
-
-      if (date != null) {
-        return date.toLocal();
+      if (value != null &&
+          value.toString().trim().isNotEmpty) {
+        return value.toString();
       }
     }
 
-    return null;
-  }
-
-  String _formatDate(
-    DateTime date,
-  ) {
-    final day =
-        date.day
-            .toString()
-            .padLeft(2, '0');
-
-    final month =
-        date.month
-            .toString()
-            .padLeft(2, '0');
-
-    return '$day/$month/${date.year}';
-  }
-
-  List<Map<String, dynamic>>
-      _filteredOpportunities(
-    List<Map<String, dynamic>> opportunities,
-  ) {
-    if (_selectedCategory == 'All') {
-      return opportunities;
-    }
-
-    return opportunities.where(
-      (opportunity) {
-        final category =
-            _category(opportunity)
-                .toLowerCase();
-
-        final selected =
-            _selectedCategory
-                .toLowerCase();
-
-        if (selected == 'learnerships') {
-          return category.contains(
-                'learnership',
-              ) ||
-              category.contains(
-                'internship',
-              ) ||
-              category.contains(
-                'apprenticeship',
-              );
-        }
-
-        return category == selected ||
-            category.contains(
-              selected.substring(
-                0,
-                selected.length - 1,
-              ),
-            );
-      },
-    ).toList();
+    return fallback;
   }
 
   IconData _categoryIcon(
     String category,
   ) {
-    final value =
-        category.toLowerCase();
+    final value = category.toLowerCase();
+
+    if (value.contains('job')) {
+      return Icons.work_outline;
+    }
 
     if (value.contains('tender')) {
       return Icons.description_outlined;
     }
 
-    if (value.contains('job') ||
-        value.contains('employment')) {
-      return Icons.work_outline;
+    if (value.contains('fund')) {
+      return Icons.account_balance_wallet_outlined;
     }
 
-    if (value.contains('fund') ||
-        value.contains('grant')) {
-      return Icons.account_balance_outlined;
-    }
-
-    if (value.contains('learnership') ||
-        value.contains('internship') ||
-        value.contains('apprenticeship')) {
+    if (value.contains('train')) {
       return Icons.school_outlined;
     }
 
-    if (value.contains('training')) {
+    if (value.contains('learn')) {
       return Icons.menu_book_outlined;
-    }
-
-    if (value.contains('business')) {
-      return Icons.business_center_outlined;
-    }
-
-    if (value.contains('education')) {
-      return Icons.auto_stories_outlined;
     }
 
     return Icons.campaign_outlined;
   }
 
-  Color _categoryColor(
-    String category,
-  ) {
-    final value =
-        category.toLowerCase();
+  @override
+  Widget build(BuildContext context) {
+    final filteredOpportunities =
+        _filteredOpportunities;
 
-    if (value.contains('tender')) {
-      return const Color(0xFF7B1FA2);
-    }
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text(
+          'Opportunities',
+        ),
+        centerTitle: true,
+        actions: [
+          IconButton(
+            onPressed: _loadOpportunities,
+            icon: const Icon(
+              Icons.refresh,
+            ),
+            tooltip: 'Refresh opportunities',
+          ),
+        ],
+      ),
 
-    if (value.contains('job') ||
-        value.contains('employment')) {
-      return const Color(0xFF1565C0);
-    }
+      body: RefreshIndicator(
+        onRefresh: _loadOpportunities,
 
-    if (value.contains('fund') ||
-        value.contains('grant')) {
-      return const Color(0xFF2E7D32);
-    }
-
-    if (value.contains('learnership') ||
-        value.contains('internship') ||
-        value.contains('apprenticeship')) {
-      return const Color(0xFFF57C00);
-    }
-
-    if (value.contains('training')) {
-      return const Color(0xFF00838F);
-    }
-
-    if (value.contains('business')) {
-      return const Color(0xFF5D4037);
-    }
-
-    if (value.contains('education')) {
-      return const Color(0xFFC62828);
-    }
-
-    return const Color(0xFF37474F);
-  }
-
-  Future<void> _openOpportunity(
-    Map<String, dynamic> opportunity,
-  ) async {
-    await Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) =>
-            OpportunityDetailsScreen(
-          opportunity:
-              opportunity,
+        child: _buildBody(
+          filteredOpportunities,
         ),
       ),
     );
-
-    if (mounted) {
-      _refreshOpportunities();
-    }
   }
 
-  @override
-  Widget build(
-    BuildContext context,
+  Widget _buildBody(
+    List<Map<String, dynamic>>
+        filteredOpportunities,
   ) {
-    return Scaffold(
-      backgroundColor:
-          const Color(0xFFF8F7F4),
+    if (_isLoading) {
+      return const Center(
+        child: CircularProgressIndicator(),
+      );
+    }
 
-      appBar: AppBar(
-        title:
-            const Text('Opportunities'),
+    if (_errorMessage != null) {
+      return _buildErrorState();
+    }
 
-        backgroundColor:
-            const Color(0xFFF8F7F4),
+    return Column(
+      children: [
+        _buildHeader(),
 
-        elevation: 0,
+        _buildCategoryFilters(),
 
-        surfaceTintColor:
-            Colors.transparent,
+        Expanded(
+          child: filteredOpportunities.isEmpty
+              ? _buildEmptyState()
+              : ListView.builder(
+                  physics:
+                      const AlwaysScrollableScrollPhysics(),
+                  padding:
+                      const EdgeInsets.fromLTRB(
+                    20,
+                    8,
+                    20,
+                    24,
+                  ),
+                  itemCount:
+                      filteredOpportunities.length,
+                  itemBuilder:
+                      (context, index) {
+                    final opportunity =
+                        filteredOpportunities[index];
 
-        actions: [
-          IconButton(
-            tooltip:
-                'Saved Opportunities',
-            icon: const Icon(
-              Icons.bookmark_outline,
-            ),
-            onPressed: () async {
-              await Navigator.of(context)
-                  .push(
-                MaterialPageRoute(
-                  builder: (_) =>
-                      const SavedOpportunitiesScreen(),
+                    return _OpportunityCard(
+                      opportunity: opportunity,
+                      title:
+                          _readTitle(opportunity),
+                      description:
+                          _readDescription(
+                        opportunity,
+                      ),
+                      organisation:
+                          _readOrganisation(
+                        opportunity,
+                      ),
+                      location:
+                          _readLocation(
+                        opportunity,
+                      ),
+                      category:
+                          _readCategory(
+                        opportunity,
+                      ),
+                      icon: _categoryIcon(
+                        _readCategory(
+                          opportunity,
+                        ),
+                      ),
+                    );
+                  },
                 ),
-              );
-            },
-          ),
-
-          IconButton(
-            tooltip:
-                'Refresh',
-            icon:
-                const Icon(Icons.refresh),
-            onPressed:
-                _refreshOpportunities,
-          ),
-        ],
-      ),
-
-      body: Column(
-        children: [
-          _buildHeader(),
-
-          _buildCategoryFilter(),
-
-          Expanded(
-            child: RefreshIndicator(
-              onRefresh:
-                  _refreshOpportunities,
-
-              child: FutureBuilder<
-                  List<Map<String, dynamic>>>(
-                future:
-                    _opportunitiesFuture,
-
-                builder:
-                    (context, snapshot) {
-                  if (snapshot.connectionState ==
-                      ConnectionState.waiting) {
-                    return const Center(
-                      child:
-                          CircularProgressIndicator(),
-                    );
-                  }
-
-                  if (snapshot.hasError) {
-                    return _buildErrorState(
-                      snapshot.error.toString(),
-                    );
-                  }
-
-                  final opportunities =
-                      _filteredOpportunities(
-                    snapshot.data ?? [],
-                  );
-
-                  if (opportunities.isEmpty) {
-                    return _buildEmptyState();
-                  }
-
-                  return ListView.separated(
-                    physics:
-                        const AlwaysScrollableScrollPhysics(),
-
-                    padding:
-                        const EdgeInsets.fromLTRB(
-                      16,
-                      12,
-                      16,
-                      30,
-                    ),
-
-                    itemCount:
-                        opportunities.length,
-
-                    separatorBuilder:
-                        (_, __) =>
-                            const SizedBox(
-                      height: 12,
-                    ),
-
-                    itemBuilder:
-                        (context, index) {
-                      return _buildOpportunityCard(
-                        opportunities[index],
-                      );
-                    },
-                  );
-                },
-              ),
-            ),
-          ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 
   Widget _buildHeader() {
-    return Container(
-      width:
-          double.infinity,
-
+    return Padding(
       padding:
           const EdgeInsets.fromLTRB(
-        20,
-        12,
-        20,
+        24,
+        28,
+        24,
         18,
       ),
-
-      child: const Column(
+      child: Column(
         crossAxisAlignment:
             CrossAxisAlignment.start,
-
         children: [
-          Text(
-            'Find your next opportunity',
+          const Text(
+            'Find your next\nopportunity',
             style: TextStyle(
-              fontSize: 23,
+              fontSize: 42,
               fontWeight:
-                  FontWeight.w800,
-              color:
-                  Color(0xFF1F232B),
+                  FontWeight.w700,
+              height: 1.05,
             ),
           ),
 
-          SizedBox(
-            height: 6,
+          const SizedBox(
+            height: 16,
           ),
 
           Text(
-            'Jobs, tenders, funding, learnerships, training and more.',
+            'Jobs, tenders, funding, learnerships, '
+            'training and more.',
+            style: TextStyle(
+              fontSize: 18,
+              height: 1.5,
+              color: Colors.grey.shade600,
+            ),
+          ),
+
+          const SizedBox(
+            height: 12,
+          ),
+
+          Text(
+            '${_opportunities.length} opportunity'
+            '${_opportunities.length == 1 ? '' : 'ies'} available',
             style: TextStyle(
               fontSize: 14,
-              color:
-                  Color(0xFF6B7280),
+              color: Colors.grey.shade500,
             ),
           ),
         ],
@@ -557,74 +388,35 @@ class _OpportunitiesScreenState
     );
   }
 
-  Widget _buildCategoryFilter() {
+  Widget _buildCategoryFilters() {
     return SizedBox(
-      height: 58,
-
+      height: 76,
       child: ListView.separated(
         scrollDirection:
             Axis.horizontal,
-
         padding:
             const EdgeInsets.symmetric(
-          horizontal: 16,
+          horizontal: 20,
+          vertical: 8,
         ),
-
         itemCount:
             _categories.length,
-
         separatorBuilder:
             (_, __) =>
-                const SizedBox(
-          width: 8,
-        ),
-
+                const SizedBox(width: 12),
         itemBuilder:
             (context, index) {
           final category =
               _categories[index];
 
-          final selected =
+          final isSelected =
               category ==
                   _selectedCategory;
 
           return ChoiceChip(
-            label:
-                Text(category),
-
-            selected:
-                selected,
-
-            selectedColor:
-                const Color(
-              0xFF1F232B,
-            ),
-
-            backgroundColor:
-                Colors.white,
-
-            side:
-                BorderSide.none,
-
-            labelStyle:
-                TextStyle(
-              fontWeight:
-                  FontWeight.w600,
-
-              color:
-                  selected
-                      ? Colors.white
-                      : const Color(
-                          0xFF4B5563,
-                        ),
-            ),
-
-            onSelected:
-                (value) {
-              if (!value) {
-                return;
-              }
-
+            label: Text(category),
+            selected: isSelected,
+            onSelected: (_) {
               setState(() {
                 _selectedCategory =
                     category;
@@ -636,75 +428,200 @@ class _OpportunitiesScreenState
     );
   }
 
-  Widget _buildOpportunityCard(
-    Map<String, dynamic> opportunity,
-  ) {
-    final title =
-        _title(opportunity);
+  Widget _buildEmptyState() {
+    final hasData =
+        _opportunities.isNotEmpty;
 
-    final description =
-        _description(opportunity);
+    return ListView(
+      physics:
+          const AlwaysScrollableScrollPhysics(),
+      children: [
+        SizedBox(
+          height: 380,
+          child: Center(
+            child: Padding(
+              padding:
+                  const EdgeInsets.all(32),
+              child: Column(
+                mainAxisAlignment:
+                    MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    hasData
+                        ? Icons.filter_alt_off_outlined
+                        : Icons.travel_explore,
+                    size: 72,
+                    color:
+                        Colors.grey.shade400,
+                  ),
 
-    final category =
-        _category(opportunity);
+                  const SizedBox(
+                    height: 24,
+                  ),
 
-    final organisation =
-        _organisation(opportunity);
+                  Text(
+                    hasData
+                        ? 'No matching opportunities'
+                        : 'No opportunities found',
+                    style: const TextStyle(
+                      fontSize: 26,
+                      fontWeight:
+                          FontWeight.w600,
+                    ),
+                    textAlign:
+                        TextAlign.center,
+                  ),
 
-    final location =
-        _location(opportunity);
+                  const SizedBox(
+                    height: 12,
+                  ),
 
-    final closingDate =
-        _closingDate(opportunity);
+                  Text(
+                    hasData
+                        ? 'Try selecting a different category.'
+                        : 'New opportunities will appear here as they are published.',
+                    style: TextStyle(
+                      fontSize: 17,
+                      color:
+                          Colors.grey.shade600,
+                    ),
+                    textAlign:
+                        TextAlign.center,
+                  ),
 
-    final verified =
-        _getBool(
-      opportunity,
-      [
-        'is_verified',
-        'verified',
+                  const SizedBox(
+                    height: 24,
+                  ),
+
+                  OutlinedButton.icon(
+                    onPressed:
+                        _loadOpportunities,
+                    icon: const Icon(
+                      Icons.refresh,
+                    ),
+                    label: const Text(
+                      'Refresh',
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
       ],
     );
+  }
 
-    final color =
-        _categoryColor(category);
+  Widget _buildErrorState() {
+    return ListView(
+      physics:
+          const AlwaysScrollableScrollPhysics(),
+      padding:
+          const EdgeInsets.all(24),
+      children: [
+        const SizedBox(
+          height: 100,
+        ),
 
+        Icon(
+          Icons.error_outline,
+          size: 72,
+          color: Colors.red.shade400,
+        ),
+
+        const SizedBox(
+          height: 24,
+        ),
+
+        const Text(
+          'Unable to load opportunities',
+          textAlign:
+              TextAlign.center,
+          style: TextStyle(
+            fontSize: 24,
+            fontWeight:
+                FontWeight.w600,
+          ),
+        ),
+
+        const SizedBox(
+          height: 16,
+        ),
+
+        Text(
+          _errorMessage ??
+              'An unknown error occurred.',
+          textAlign:
+              TextAlign.center,
+          style: TextStyle(
+            color:
+                Colors.grey.shade600,
+          ),
+        ),
+
+        const SizedBox(
+          height: 28,
+        ),
+
+        Center(
+          child: ElevatedButton.icon(
+            onPressed:
+                _loadOpportunities,
+            icon:
+                const Icon(Icons.refresh),
+            label:
+                const Text('Try Again'),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _OpportunityCard extends StatelessWidget {
+  final Map<String, dynamic>
+      opportunity;
+
+  final String title;
+  final String description;
+  final String organisation;
+  final String location;
+  final String category;
+  final IconData icon;
+
+  const _OpportunityCard({
+    required this.opportunity,
+    required this.title,
+    required this.description,
+    required this.organisation,
+    required this.location,
+    required this.category,
+    required this.icon,
+  });
+
+  @override
+  Widget build(BuildContext context) {
     return Card(
-      elevation: 0,
-
-      color:
-          Colors.white,
-
-      shape:
-          RoundedRectangleBorder(
-        borderRadius:
-            BorderRadius.circular(
-          20,
-        ),
-
-        side:
-            const BorderSide(
-          color:
-              Color(0xFFEAEAEA),
-        ),
+      margin:
+          const EdgeInsets.only(
+        bottom: 16,
       ),
 
       child: InkWell(
         borderRadius:
-            BorderRadius.circular(
-          20,
-        ),
+            BorderRadius.circular(16),
 
-        onTap: () =>
-            _openOpportunity(
-          opportunity,
-        ),
+        onTap: () {
+          Navigator.pushNamed(
+            context,
+            '/opportunity-details',
+            arguments: opportunity,
+          );
+        },
 
         child: Padding(
           padding:
-              const EdgeInsets.all(
-            18,
-          ),
+              const EdgeInsets.all(18),
 
           child: Column(
             crossAxisAlignment:
@@ -716,32 +633,27 @@ class _OpportunitiesScreenState
                   Container(
                     width: 48,
                     height: 48,
-
                     decoration:
                         BoxDecoration(
-                      color:
-                          color.withOpacity(
-                        0.12,
-                      ),
-
                       borderRadius:
                           BorderRadius.circular(
-                        14,
+                        12,
                       ),
+                      color: Theme.of(
+                        context,
+                      )
+                          .colorScheme
+                          .primary
+                          .withOpacity(0.10),
                     ),
 
                     child: Icon(
-                      _categoryIcon(
-                        category,
-                      ),
-
-                      color:
-                          color,
+                      icon,
                     ),
                   ),
 
                   const SizedBox(
-                    width: 12,
+                    width: 14,
                   ),
 
                   Expanded(
@@ -749,181 +661,102 @@ class _OpportunitiesScreenState
                       crossAxisAlignment:
                           CrossAxisAlignment
                               .start,
-
                       children: [
                         Text(
-                          category.toUpperCase(),
-
-                          style:
-                              TextStyle(
-                            fontSize: 11,
-
-                            letterSpacing:
-                                0.8,
-
-                            fontWeight:
-                                FontWeight
-                                    .w800,
-
+                          category,
+                          style: TextStyle(
+                            fontSize: 13,
                             color:
-                                color,
+                                Colors.grey.shade600,
                           ),
                         ),
 
-                        if (verified)
-                          const Padding(
-                            padding:
-                                EdgeInsets.only(
-                              top: 3,
-                            ),
+                        const SizedBox(
+                          height: 4,
+                        ),
 
-                            child: Row(
-                              children: [
-                                Icon(
-                                  Icons
-                                      .verified,
-                                  size: 14,
-                                  color:
-                                      Color(
-                                    0xFF198754,
-                                  ),
-                                ),
-
-                                SizedBox(
-                                  width: 4,
-                                ),
-
-                                Text(
-                                  'VERIFIED',
-                                  style:
-                                      TextStyle(
-                                    fontSize: 10,
-                                    fontWeight:
-                                        FontWeight
-                                            .w700,
-                                    color:
-                                        Color(
-                                      0xFF198754,
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
+                        Text(
+                          organisation,
+                          maxLines: 1,
+                          overflow:
+                              TextOverflow
+                                  .ellipsis,
+                          style:
+                              const TextStyle(
+                            fontWeight:
+                                FontWeight.w600,
                           ),
+                        ),
                       ],
                     ),
                   ),
 
                   const Icon(
                     Icons
-                        .arrow_forward_ios,
+                        .arrow_forward_ios_rounded,
                     size: 16,
-                    color:
-                        Color(0xFF9CA3AF),
                   ),
                 ],
               ),
 
               const SizedBox(
-                height: 16,
+                height: 18,
               ),
 
               Text(
                 title,
-
-                maxLines: 2,
-
-                overflow:
-                    TextOverflow.ellipsis,
-
                 style:
                     const TextStyle(
-                  fontSize: 19,
-
-                  height: 1.25,
-
+                  fontSize: 21,
                   fontWeight:
-                      FontWeight.w800,
-
-                  color:
-                      Color(0xFF1F232B),
+                      FontWeight.w700,
                 ),
               ),
 
-              if (organisation
-                  .isNotEmpty) ...[
+              const SizedBox(
+                height: 10,
+              ),
+
+              Text(
+                description,
+                maxLines: 3,
+                overflow:
+                    TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 15,
+                  height: 1.45,
+                  color:
+                      Colors.grey.shade700,
+                ),
+              ),
+
+              if (location.isNotEmpty) ...[
                 const SizedBox(
-                  height: 6,
+                  height: 16,
                 ),
 
-                Text(
-                  organisation,
-
-                  style:
-                      const TextStyle(
-                    fontSize: 14,
-
-                    fontWeight:
-                        FontWeight.w600,
-
-                    color:
-                        Color(0xFF6B7280),
-                  ),
-                ),
-              ],
-
-              if (description
-                  .isNotEmpty) ...[
-                const SizedBox(
-                  height: 10,
-                ),
-
-                Text(
-                  description,
-
-                  maxLines: 3,
-
-                  overflow:
-                      TextOverflow.ellipsis,
-
-                  style:
-                      const TextStyle(
-                    fontSize: 14,
-
-                    height: 1.45,
-
-                    color:
-                        Color(0xFF6B7280),
-                  ),
-                ),
-              ],
-
-              if (location.isNotEmpty ||
-                  closingDate != null) ...[
-                const SizedBox(
-                  height: 14,
-                ),
-
-                Wrap(
-                  spacing: 14,
-                  runSpacing: 8,
-
+                Row(
                   children: [
-                    if (location
-                        .isNotEmpty)
-                      _infoItem(
-                        Icons
-                            .location_on_outlined,
-                        location,
-                      ),
+                    Icon(
+                      Icons.location_on_outlined,
+                      size: 17,
+                      color:
+                          Colors.grey.shade600,
+                    ),
 
-                    if (closingDate !=
-                        null)
-                      _infoItem(
-                        Icons
-                            .calendar_today_outlined,
-                        'Closes ${_formatDate(closingDate)}',
+                    const SizedBox(
+                      width: 6,
+                    ),
+
+                    Expanded(
+                      child: Text(
+                        location,
+                        style: TextStyle(
+                          color:
+                              Colors.grey.shade600,
+                        ),
                       ),
+                    ),
                   ],
                 ),
               ],
@@ -931,202 +764,6 @@ class _OpportunitiesScreenState
           ),
         ),
       ),
-    );
-  }
-
-  Widget _infoItem(
-    IconData icon,
-    String text,
-  ) {
-    return Row(
-      mainAxisSize:
-          MainAxisSize.min,
-
-      children: [
-        Icon(
-          icon,
-
-          size: 15,
-
-          color:
-              const Color(
-            0xFF9CA3AF,
-          ),
-        ),
-
-        const SizedBox(
-          width: 5,
-        ),
-
-        Text(
-          text,
-
-          style:
-              const TextStyle(
-            fontSize: 12,
-            color:
-                Color(0xFF6B7280),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildEmptyState() {
-    return ListView(
-      physics:
-          const AlwaysScrollableScrollPhysics(),
-
-      children: const [
-        SizedBox(
-          height: 120,
-        ),
-
-        Icon(
-          Icons
-              .search_off_outlined,
-
-          size: 64,
-
-          color:
-              Color(0xFF9CA3AF),
-        ),
-
-        SizedBox(
-          height: 18,
-        ),
-
-        Center(
-          child: Text(
-            'No opportunities found',
-
-            style:
-                TextStyle(
-              fontSize: 19,
-
-              fontWeight:
-                  FontWeight.w700,
-            ),
-          ),
-        ),
-
-        SizedBox(
-          height: 8,
-        ),
-
-        Padding(
-          padding:
-              EdgeInsets.symmetric(
-            horizontal: 40,
-          ),
-
-          child: Text(
-            'New opportunities will appear here as they are published.',
-
-            textAlign:
-                TextAlign.center,
-
-            style:
-                TextStyle(
-              color:
-                  Color(
-                0xFF6B7280,
-              ),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildErrorState(
-    String error,
-  ) {
-    return ListView(
-      physics:
-          const AlwaysScrollableScrollPhysics(),
-
-      padding:
-          const EdgeInsets.all(
-        24,
-      ),
-
-      children: [
-        const SizedBox(
-          height: 100,
-        ),
-
-        const Icon(
-          Icons
-              .cloud_off_outlined,
-
-          size: 64,
-
-          color:
-              Color(0xFF9CA3AF),
-        ),
-
-        const SizedBox(
-          height: 18,
-        ),
-
-        const Center(
-          child: Text(
-            'Unable to load opportunities',
-
-            style:
-                TextStyle(
-              fontSize: 19,
-
-              fontWeight:
-                  FontWeight.w700,
-            ),
-          ),
-        ),
-
-        const SizedBox(
-          height: 10,
-        ),
-
-        Text(
-          error,
-
-          textAlign:
-              TextAlign.center,
-
-          style:
-              const TextStyle(
-            fontSize: 12,
-
-            color:
-                Color(
-              0xFF9CA3AF,
-            ),
-          ),
-        ),
-
-        const SizedBox(
-          height: 20,
-        ),
-
-        Center(
-          child:
-              ElevatedButton.icon(
-            onPressed:
-                _refreshOpportunities,
-
-            icon:
-                const Icon(
-              Icons.refresh,
-            ),
-
-            label:
-                const Text(
-              'Try Again',
-            ),
-          ),
-        ),
-      ],
     );
   }
 }
