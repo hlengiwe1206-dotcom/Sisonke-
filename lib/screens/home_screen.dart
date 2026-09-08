@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../notifications/notifications_screen.dart';
+
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
 
@@ -11,19 +13,15 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   final supabase = Supabase.instance.client;
 
-  int unreadCount = 0;
-
-  RealtimeChannel? notificationChannel;
+  int unreadNotifications = 0;
 
   @override
   void initState() {
     super.initState();
-
-    loadUnreadCount();
-    listenForNotifications();
+    loadUnreadNotifications();
   }
 
-  Future<void> loadUnreadCount() async {
+  Future<void> loadUnreadNotifications() async {
     try {
       final user = supabase.auth.currentUser;
 
@@ -38,108 +36,87 @@ class _HomeScreenState extends State<HomeScreen> {
       if (!mounted) return;
 
       setState(() {
-        unreadCount = data.length;
+        unreadNotifications = data.length;
       });
     } catch (error) {
-      debugPrint('Error loading unread notifications: $error');
+      debugPrint(
+        'Error loading unread notifications: $error',
+      );
     }
-  }
-
-  void listenForNotifications() {
-    final user = supabase.auth.currentUser;
-
-    if (user == null) return;
-
-    notificationChannel = supabase
-        .channel('home-notifications-${user.id}')
-        .onPostgresChanges(
-          event: PostgresChangeEvent.all,
-          schema: 'public',
-          table: 'notifications',
-          filter: PostgresChangeFilter(
-            type: PostgresChangeFilterType.eq,
-            column: 'user_id',
-            value: user.id,
-          ),
-          callback: (payload) {
-            loadUnreadCount();
-          },
-        )
-        .subscribe();
-  }
-
-  @override
-  void dispose() {
-    if (notificationChannel != null) {
-      supabase.removeChannel(notificationChannel!);
-    }
-
-    super.dispose();
-  }
-
-  Future<void> openNotifications() async {
-    await Navigator.pushNamed(
-      context,
-      '/notifications',
-    );
-
-    loadUnreadCount();
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Sisonke'),
-
+        title: const Text(
+          'Sisonke',
+          style: TextStyle(
+            fontWeight: FontWeight.bold,
+          ),
+        ),
         actions: [
-          IconButton(
-            onPressed: openNotifications,
-            icon: Stack(
-              clipBehavior: Clip.none,
-              children: [
-                const Icon(
+          Stack(
+            children: [
+              IconButton(
+                icon: const Icon(
                   Icons.notifications_outlined,
+                  size: 30,
                 ),
+                onPressed: () async {
+                  await Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) =>
+                          const NotificationsScreen(),
+                    ),
+                  );
 
-                if (unreadCount > 0)
-                  Positioned(
-                    right: -6,
-                    top: -6,
-                    child: Container(
-                      padding: const EdgeInsets.all(4),
-                      decoration: const BoxDecoration(
-                        color: Colors.red,
-                        shape: BoxShape.circle,
-                      ),
-                      constraints: const BoxConstraints(
-                        minWidth: 18,
-                        minHeight: 18,
-                      ),
+                  loadUnreadNotifications();
+                },
+              ),
+
+              if (unreadNotifications > 0)
+                Positioned(
+                  right: 6,
+                  top: 6,
+                  child: Container(
+                    padding: const EdgeInsets.all(5),
+                    decoration: const BoxDecoration(
+                      color: Colors.red,
+                      shape: BoxShape.circle,
+                    ),
+                    constraints: const BoxConstraints(
+                      minWidth: 22,
+                      minHeight: 22,
+                    ),
+                    child: Center(
                       child: Text(
-                        unreadCount > 9
-                            ? '9+'
-                            : unreadCount.toString(),
-                        textAlign: TextAlign.center,
+                        unreadNotifications > 99
+                            ? '99+'
+                            : unreadNotifications.toString(),
                         style: const TextStyle(
                           color: Colors.white,
-                          fontSize: 10,
+                          fontSize: 11,
                           fontWeight: FontWeight.bold,
                         ),
                       ),
                     ),
                   ),
-              ],
-            ),
+                ),
+            ],
           ),
         ],
       ),
 
       body: const Center(
         child: Text(
-          'Home Screen',
+          'Welcome to Sisonke',
+          style: TextStyle(
+            fontSize: 24,
+          ),
         ),
       ),
     );
   }
-}
+} 
