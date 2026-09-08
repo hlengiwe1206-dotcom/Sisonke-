@@ -16,67 +16,62 @@ class _HelpExchangeScreenState
   final SupabaseClient _supabase =
       Supabase.instance.client;
 
-  bool _isLoading = true;
-  String? _errorMessage;
+  late Future<List<Map<String, dynamic>>>
+      _requestsFuture;
 
-  List<Map<String, dynamic>> _allRequests = [];
+  String _selectedFilter = 'All';
 
-  String _searchQuery = '';
-  String _selectedCategory = 'All';
-  String _selectedLocation = 'All Locations';
-
-  final TextEditingController _searchController =
-      TextEditingController();
-
-  RealtimeChannel? _requestsChannel;
+  final List<String> _filters = [
+    'All',
+    'Open',
+    'Urgent',
+    'Completed',
+  ];
 
   @override
   void initState() {
     super.initState();
-
-    _loadRequests();
-    _listenForRequests();
+    _requestsFuture = _loadRequests();
   }
 
   // ============================================================
-  // LOAD REQUESTS
+  // LOAD HELP REQUESTS
   // ============================================================
 
-  Future<void> _loadRequests() async {
-    if (mounted) {
-      setState(() {
-        _isLoading = true;
-        _errorMessage = null;
-      });
-    }
-
+  Future<List<Map<String, dynamic>>>
+      _loadRequests() async {
     try {
-      // --------------------------------------------------------
-      // LOAD ACTIVE HELP REQUESTS ONLY
-      // --------------------------------------------------------
+      final List<dynamic> requestData =
+          await _supabase
+              .from('help_requests')
+              .select(
+                'id, post_id, requester_id, status, '
+                'category, location, urgent, created_at',
+              )
+              .order(
+                'created_at',
+                ascending: false,
+              );
 
-      final requestData = await _supabase
-          .from('help_requests')
-          .select()
-          .eq('status', 'open')
-          .order(
-            'created_at',
-            ascending: false,
-          );
+      final requests = requestData
+          .map(
+            (item) =>
+                Map<String, dynamic>.from(item),
+          )
+          .toList();
 
-      final requests =
-          List<Map<String, dynamic>>.from(
-        requestData,
-      );
+      if (requests.isEmpty) {
+        return requests;
+      }
 
-      // --------------------------------------------------------
-      // LOAD POSTER PROFILES
-      // --------------------------------------------------------
+      // ----------------------------------------------------------
+      // LOAD PARENT POSTS
+      // ----------------------------------------------------------
 
-      final userIds = requests
+      final postIds = requests
           .map(
             (request) =>
-                _safeText(request['user_id']),
+                _safeText(request['post_id']),
           )
           .where(
             (id) => id.isNotEmpty,
@@ -84,92 +79,148 @@ class _HelpExchangeScreenState
           .toSet()
           .toList();
 
-      final profilesById =
-          <String, Map<String, dynamic>>{};
+      final Map<String, Map<String, dynamic>>
+          postsById = {};
 
-      if (userIds.isNotEmpty) {
-        final profileData = await _supabase
-            .from('profiles')
-            .select(
-              'id, full_name, avatar_url',
-            )
-            .inFilter(
-              'id',
-              userIds,
-            );
+      if (postIds.isNotEmpty) {
+        final List<dynamic> postData =
+            await _supabase
+                .from('posts')
+                .select(
+                  'id, user_id, type, title, content, '
+                  'status, created_at',
+                )
+                .inFilter(
+                  'id',
+                  postIds,
+                );
+
+        for (final item in postData) {
+          final post =
+              Map<String, dynamic>.from(item);
+
+          final id =
+              _safeText(post['id']);
+
+          if (id.isNotEmpty) {
+            postsById[id] = post;
+          }
+        }
+      }
+
+      // ----------------------------------------------------------
+      // LOAD REQUESTER PROFILES
+      // ----------------------------------------------------------
+
+      final requesterIds = requests
+          .map(
+            (request) =>
+                _safeText(request['requester_id']),
+          )
+          .where(
+            (id) => id.isNotEmpty,
+          )
+          .toSet()
+          .toList();
+
+      final Map<String, Map<String, dynamic>>
+          profilesById = {};
+
+      if (requesterIds.isNotEmpty) {
+        final List<dynamic> profileData =
+            await _supabase
+                .from('profiles')
+                .select(
+                  'id, first_name, full_name, avatar_url',
+                )
+                .inFilter(
+                  'id',
+                  requesterIds,
+                );
 
         for (final item in profileData) {
           final profile =
               Map<String, dynamic>.from(item);
 
-          final profileId =
+          final id =
               _safeText(profile['id']);
 
-          if (profileId.isNotEmpty) {
-            profilesById[profileId] = profile;
+          if (id.isNotEmpty) {
+            profilesById[id] = profile;
           }
         }
       }
 
-      // --------------------------------------------------------
-      // ATTACH PROFILE INFORMATION
-      // --------------------------------------------------------
+      // ----------------------------------------------------------
+      // COMBINE DATA
+      // ----------------------------------------------------------
 
       for (final request in requests) {
-        final userId =
-            _safeText(request['user_id']);
+        final post =
+            postsById[
+              _safeText(request['post_id'])
+            ];
+
+        if (post != null) {
+          request['title'] =
+              _safeText(
+            post['title'],
+            'Help Request',
+          );
+
+          request['description'] =
+              _safeText(
+            post['content'],
+            'No description provided.',
+          );
+
+          request['post_status'] =
+              _safeText(post['status']);
+
+          request['post_user_id'] =
+              _safeText(post['user_id']);
+        } else {
+          request['title'] =
+              'Help Request';
+
+          request['description'] =
+              'No description provided.';
+        }
 
         final profile =
-            profilesById[userId];
+            profilesById[
+              _safeText(
+                request['requester_id'],
+              )
+            ];
 
-        request['poster_name'] =
-            _safeText(
-          profile?['full_name'],
-          'Sisonke Member',
-        );
+        if (profile != null) {
+          request['poster_name'] =
+              _profileName(profile);
 
-        request['poster_avatar_url'] =
-            _safeText(
-          profile?['avatar_url'],
-        );
+          request['poster_avatar_url'] =
+              _safeText(
+            profile['avatar_url'],
+          );
+        } else {
+          request['poster_name'] =
+              'Sisonke Member';
+
+          request['poster_avatar_url'] =
+              '';
+        }
       }
 
-      if (!mounted) return;
-
-      setState(() {
-        _allRequests = requests;
-        _isLoading = false;
-      });
-    } catch (error) {
-      debugPrint(
-        'Error loading Help Exchange: $error',
+      return requests;
+    } on PostgrestException catch (error) {
+      throw Exception(
+        'Unable to load help requests: ${error.message}',
       );
-
-      if (!mounted) return;
-
-      setState(() {
-        _isLoading = false;
-        _errorMessage = error.toString();
-      });
+    } catch (error) {
+      throw Exception(
+        'Unable to load help requests: $error',
+      );
     }
-  }
-
-  // ============================================================
-  // REALTIME
-  // ============================================================
-
-  void _listenForRequests() {
-    _requestsChannel = _supabase
-        .channel('help-exchange-live')
-        .onPostgresChanges(
-          event: PostgresChangeEvent.all,
-          schema: 'public',
-          table: 'help_requests',
-          callback: (payload) {
-            _loadRequests();
-          },
-        )
-        .subscribe();
   }
 
   // ============================================================
@@ -177,11 +228,81 @@ class _HelpExchangeScreenState
   // ============================================================
 
   Future<void> _refreshRequests() async {
-    await _loadRequests();
+    setState(() {
+      _requestsFuture = _loadRequests();
+    });
+
+    await _requestsFuture;
   }
 
   // ============================================================
-  // SAFE TEXT
+  // FILTER
+  // ============================================================
+
+  List<Map<String, dynamic>> _filterRequests(
+    List<Map<String, dynamic>> requests,
+  ) {
+    if (_selectedFilter == 'All') {
+      return requests;
+    }
+
+    return requests.where((request) {
+      final status =
+          _safeText(
+            request['status'],
+          ).toLowerCase();
+
+      final urgent =
+          _safeBool(
+            request['urgent'],
+          );
+
+      switch (_selectedFilter) {
+        case 'Open':
+          return status.isEmpty ||
+              status == 'open' ||
+              status == 'pending' ||
+              status == 'active';
+
+        case 'Urgent':
+          return urgent;
+
+        case 'Completed':
+          return status == 'completed' ||
+              status == 'closed' ||
+              status == 'resolved';
+
+        default:
+          return true;
+      }
+    }).toList();
+  }
+
+  // ============================================================
+  // OPEN DETAIL
+  // ============================================================
+
+  Future<void> _openRequest(
+    Map<String, dynamic> request,
+  ) async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) =>
+            HelpRequestDetailScreen(
+          request: request,
+        ),
+      ),
+    );
+
+    if (!mounted) return;
+
+    setState(() {
+      _requestsFuture = _loadRequests();
+    });
+  }
+
+  // ============================================================
+  // HELPERS
   // ============================================================
 
   String _safeText(
@@ -196,16 +317,12 @@ class _HelpExchangeScreenState
         value.toString().trim();
 
     if (text.isEmpty ||
-        text.toLowerCase() == 'null') {
+        text == 'null') {
       return fallback;
     }
 
     return text;
   }
-
-  // ============================================================
-  // SAFE BOOLEAN
-  // ============================================================
 
   bool _safeBool(dynamic value) {
     if (value == null) {
@@ -217,165 +334,54 @@ class _HelpExchangeScreenState
     }
 
     final text =
-        value.toString().trim().toLowerCase();
+        value.toString().toLowerCase();
 
     return text == 'true' ||
         text == '1' ||
         text == 'yes';
   }
 
-  // ============================================================
-  // AVAILABLE CATEGORIES
-  // ============================================================
+  String _profileName(
+    Map<String, dynamic> profile,
+  ) {
+    final firstName =
+        _safeText(
+      profile['first_name'],
+    );
 
-  List<String> _categories() {
-    final categories = _allRequests
-        .map(
-          (request) =>
-              _safeText(request['category']),
-        )
-        .where(
-          (category) => category.isNotEmpty,
-        )
-        .toSet()
-        .toList();
+    final fullName =
+        _safeText(
+      profile['full_name'],
+    );
 
-    categories.sort();
+    if (fullName.isNotEmpty) {
+      return fullName;
+    }
 
-    return [
-      'All',
-      ...categories,
-    ];
+    if (firstName.isNotEmpty) {
+      return firstName;
+    }
+
+    return 'Sisonke Member';
   }
 
-  // ============================================================
-  // AVAILABLE LOCATIONS
-  // ============================================================
-
-  List<String> _locations() {
-    final locations = _allRequests
-        .map(
-          (request) =>
-              _safeText(request['location']),
-        )
-        .where(
-          (location) => location.isNotEmpty,
-        )
-        .toSet()
-        .toList();
-
-    locations.sort();
-
-    return [
-      'All Locations',
-      ...locations,
-    ];
-  }
-
-  // ============================================================
-  // FILTER REQUESTS
-  // ============================================================
-
-  List<Map<String, dynamic>>
-      _filteredRequests() {
-    final query =
-        _searchQuery.trim().toLowerCase();
-
-    return _allRequests.where((request) {
-      final status =
-          _safeText(
-        request['status'],
-      ).toLowerCase();
-
-      // --------------------------------------------------------
-      // ONLY ACTIVE OPEN REQUESTS
-      // --------------------------------------------------------
-
-      if (status != 'open') {
-        return false;
-      }
-
-      // --------------------------------------------------------
-      // CATEGORY FILTER
-      // --------------------------------------------------------
-
-      final category =
-          _safeText(
-        request['category'],
-      );
-
-      if (_selectedCategory != 'All' &&
-          category.toLowerCase() !=
-              _selectedCategory.toLowerCase()) {
-        return false;
-      }
-
-      // --------------------------------------------------------
-      // LOCATION FILTER
-      // --------------------------------------------------------
-
-      final location =
-          _safeText(
-        request['location'],
-      );
-
-      if (_selectedLocation !=
-              'All Locations' &&
-          location.toLowerCase() !=
-              _selectedLocation.toLowerCase()) {
-        return false;
-      }
-
-      // --------------------------------------------------------
-      // SEARCH
-      // --------------------------------------------------------
-
-      if (query.isNotEmpty) {
-        final title =
-            _safeText(
-          request['title'],
-        ).toLowerCase();
-
-        final description =
-            _safeText(
-          request['description'],
-        ).toLowerCase();
-
-        final posterName =
-            _safeText(
-          request['poster_name'],
-        ).toLowerCase();
-
-        final searchableText =
-            '$title $description $category '
-            '$location $posterName';
-
-        if (!searchableText.contains(query)) {
-          return false;
-        }
-      }
-
-      return true;
-    }).toList();
-  }
-
-  // ============================================================
-  // FORMAT DATE
-  // ============================================================
-
-  String _formatDate(dynamic value) {
+  String _formatDate(
+    dynamic value,
+  ) {
     if (value == null) {
       return 'Recently';
     }
 
     try {
-      final date = value is DateTime
-          ? value
-          : DateTime.parse(
-              value.toString(),
-            );
+      final date =
+          value is DateTime
+              ? value
+              : DateTime.parse(
+                  value.toString(),
+                );
 
-      final now = DateTime.now();
+      final now =
+          DateTime.now();
 
       final difference =
           now.difference(date);
@@ -408,61 +414,55 @@ class _HelpExchangeScreenState
     }
   }
 
-  // ============================================================
-  // OPEN DETAILS
-  // ============================================================
+  Color _statusColor(
+    String status,
+  ) {
+    switch (status.toLowerCase()) {
+      case 'completed':
+      case 'closed':
+      case 'resolved':
+        return Colors.green;
 
-  Future<void> _openRequest(
-    Map<String, dynamic> request,
-  ) async {
-    await Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) =>
-            HelpRequestDetailScreen(
-          request: request,
-        ),
-      ),
-    );
+      case 'pending':
+        return Colors.orange;
 
-    _loadRequests();
+      case 'open':
+      case 'active':
+        return const Color(0xFF007749);
+
+      default:
+        return Colors.grey;
+    }
   }
-
-  // ============================================================
-  // CATEGORY ICON
-  // ============================================================
 
   IconData _categoryIcon(
     String category,
   ) {
     switch (category.toLowerCase()) {
       case 'food':
-      case 'food & essentials':
         return Icons.restaurant_outlined;
 
-      case 'transport':
-        return Icons.directions_car_outlined;
-
-      case 'jobs':
       case 'employment':
         return Icons.work_outline;
 
       case 'education':
         return Icons.school_outlined;
 
+      case 'healthcare':
       case 'health':
-      case 'health & wellness':
-        return Icons.favorite_outline;
-
-      case 'emergency':
-        return Icons.warning_amber_outlined;
+        return Icons.health_and_safety_outlined;
 
       case 'housing':
         return Icons.home_outlined;
 
+      case 'transport':
+        return Icons.directions_car_outlined;
+
       case 'business':
-      case 'business support':
         return Icons.business_outlined;
+
+      case 'emergency':
+        return Icons.warning_amber_outlined;
 
       default:
         return Icons.volunteer_activism_outlined;
@@ -470,367 +470,244 @@ class _HelpExchangeScreenState
   }
 
   // ============================================================
-  // DISPOSE
-  // ============================================================
-
-  @override
-  void dispose() {
-    _searchController.dispose();
-
-    if (_requestsChannel != null) {
-      _supabase.removeChannel(
-        _requestsChannel!,
-      );
-    }
-
-    super.dispose();
-  }
-
-  // ============================================================
   // BUILD
   // ============================================================
 
   @override
-  Widget build(BuildContext context) {
-    final filteredRequests =
-        _filteredRequests();
-
+  Widget build(
+    BuildContext context,
+  ) {
     return Scaffold(
       backgroundColor:
-          const Color(0xFFF6F7FB),
+          const Color(0xFFF7F8FA),
 
       appBar: AppBar(
-        elevation: 0,
-        backgroundColor:
-            Colors.white,
-        foregroundColor:
-            const Color(0xFF1F2937),
-
         title: const Text(
           'Help Exchange',
           style: TextStyle(
-            fontWeight:
-                FontWeight.bold,
+            fontWeight: FontWeight.w800,
           ),
         ),
-
+        backgroundColor: Colors.white,
+        foregroundColor:
+            const Color(0xFF111111),
+        elevation: 0,
         actions: [
           IconButton(
             tooltip: 'Refresh',
-            onPressed: _refreshRequests,
-            icon:
-                const Icon(Icons.refresh),
+            onPressed:
+                _refreshRequests,
+            icon: const Icon(
+              Icons.refresh,
+            ),
           ),
         ],
       ),
 
-      body: SafeArea(
-        child: Column(
-          children: [
-            _buildSearchArea(),
+      floatingActionButton:
+          FloatingActionButton.extended(
+        backgroundColor:
+            const Color(0xFF007749),
+        foregroundColor:
+            Colors.white,
+        onPressed: () async {
+          await Navigator.of(context)
+              .pushNamed('/create-help-request');
 
-            _buildCategoryFilters(),
+          if (!mounted) return;
 
-            _buildLocationFilter(),
-
-            Expanded(
-              child: _isLoading
-                  ? const Center(
-                      child:
-                          CircularProgressIndicator(),
-                    )
-                  : _errorMessage != null
-                      ? _buildErrorState()
-                      : filteredRequests.isEmpty
-                          ? _buildEmptyState()
-                          : RefreshIndicator(
-                              onRefresh:
-                                  _refreshRequests,
-                              child:
-                                  ListView.builder(
-                                physics:
-                                    const AlwaysScrollableScrollPhysics(),
-
-                                padding:
-                                    const EdgeInsets.all(
-                                  16,
-                                ),
-
-                                itemCount:
-                                    filteredRequests
-                                        .length,
-
-                                itemBuilder:
-                                    (
-                                  context,
-                                  index,
-                                ) {
-                                  return _buildRequestCard(
-                                    filteredRequests[
-                                        index],
-                                  );
-                                },
-                              ),
-                            ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  // ============================================================
-  // SEARCH AREA
-  // ============================================================
-
-  Widget _buildSearchArea() {
-    return Container(
-      color: Colors.white,
-
-      padding:
-          const EdgeInsets.fromLTRB(
-        16,
-        12,
-        16,
-        10,
-      ),
-
-      child: TextField(
-        controller:
-            _searchController,
-
-        onChanged: (value) {
           setState(() {
-            _searchQuery = value;
+            _requestsFuture =
+                _loadRequests();
           });
         },
-
-        decoration: InputDecoration(
-          hintText:
-              'What can you help with?',
-
-          prefixIcon:
-              const Icon(Icons.search),
-
-          suffixIcon:
-              _searchQuery.isEmpty
-                  ? null
-                  : IconButton(
-                      icon: const Icon(
-                        Icons.clear,
-                      ),
-                      onPressed: () {
-                        _searchController.clear();
-
-                        setState(() {
-                          _searchQuery = '';
-                        });
-                      },
-                    ),
-
-          filled: true,
-
-          fillColor:
-              const Color(0xFFF3F4F6),
-
-          border:
-              OutlineInputBorder(
-            borderRadius:
-                BorderRadius.circular(
-              14,
-            ),
-
-            borderSide:
-                BorderSide.none,
-          ),
-
-          enabledBorder:
-              OutlineInputBorder(
-            borderRadius:
-                BorderRadius.circular(
-              14,
-            ),
-
-            borderSide:
-                BorderSide.none,
-          ),
-
-          focusedBorder:
-              OutlineInputBorder(
-            borderRadius:
-                BorderRadius.circular(
-              14,
-            ),
-
-            borderSide:
-                const BorderSide(
-              color:
-                  Color(0xFFFFB300),
-              width: 1.5,
-            ),
-          ),
+        icon: const Icon(
+          Icons.add,
         ),
+        label: const Text(
+          'Ask for Help',
+        ),
+      ),
+
+      body: Column(
+        children: [
+          _buildIntro(),
+          _buildFilters(),
+
+          Expanded(
+            child: FutureBuilder<
+                List<Map<String, dynamic>>>(
+              future: _requestsFuture,
+              builder:
+                  (context, snapshot) {
+                if (snapshot.connectionState ==
+                    ConnectionState.waiting) {
+                  return const Center(
+                    child:
+                        CircularProgressIndicator(
+                      color:
+                          Color(0xFF007749),
+                    ),
+                  );
+                }
+
+                if (snapshot.hasError) {
+                  return _buildErrorState(
+                    snapshot.error
+                        .toString(),
+                  );
+                }
+
+                final requests =
+                    _filterRequests(
+                  snapshot.data ?? [],
+                );
+
+                if (requests.isEmpty) {
+                  return _buildEmptyState();
+                }
+
+                return RefreshIndicator(
+                  color:
+                      const Color(0xFF007749),
+                  onRefresh:
+                      _refreshRequests,
+                  child:
+                      ListView.separated(
+                    physics:
+                        const AlwaysScrollableScrollPhysics(),
+                    padding:
+                        const EdgeInsets.fromLTRB(
+                      16,
+                      8,
+                      16,
+                      100,
+                    ),
+                    itemCount:
+                        requests.length,
+                    separatorBuilder:
+                        (_, __) =>
+                            const SizedBox(
+                      height: 12,
+                    ),
+                    itemBuilder:
+                        (context, index) {
+                      return _buildRequestCard(
+                        requests[index],
+                      );
+                    },
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
       ),
     );
   }
 
   // ============================================================
-  // CATEGORY FILTERS
+  // INTRO
   // ============================================================
 
-  Widget _buildCategoryFilters() {
-    final categories =
-        _categories();
-
+  Widget _buildIntro() {
     return Container(
       width: double.infinity,
       color: Colors.white,
+      padding:
+          const EdgeInsets.fromLTRB(
+        20,
+        16,
+        20,
+        18,
+      ),
+      child: Column(
+        crossAxisAlignment:
+            CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'People helping people.',
+            style: TextStyle(
+              fontSize: 23,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Find someone who needs help, or offer '
+            'your skills, time or resources to someone '
+            'in the Sisonke community.',
+            style: TextStyle(
+              fontSize: 14,
+              height: 1.45,
+              color:
+                  Colors.grey.shade700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 
+  // ============================================================
+  // FILTERS
+  // ============================================================
+
+  Widget _buildFilters() {
+    return Container(
+      color: Colors.white,
       padding:
           const EdgeInsets.fromLTRB(
         16,
-        4,
+        0,
         16,
-        12,
+        14,
       ),
-
       child: SingleChildScrollView(
         scrollDirection:
             Axis.horizontal,
-
         child: Row(
           children:
-              categories.map((category) {
+              _filters.map((filter) {
             final selected =
-                category ==
-                    _selectedCategory;
+                _selectedFilter ==
+                    filter;
 
             return Padding(
               padding:
                   const EdgeInsets.only(
                 right: 8,
               ),
-
               child: ChoiceChip(
-                label: Text(category),
-
+                label: Text(filter),
                 selected: selected,
-
+                onSelected: (_) {
+                  setState(() {
+                    _selectedFilter =
+                        filter;
+                  });
+                },
                 selectedColor:
                     const Color(
-                  0xFFFFB300,
+                  0xFF007749,
                 ),
-
                 backgroundColor:
                     const Color(
-                  0xFFF3F4F6,
+                  0xFFF1F3F4,
                 ),
-
                 labelStyle: TextStyle(
                   color: selected
                       ? Colors.white
                       : const Color(
-                          0xFF374151,
+                          0xFF333333,
                         ),
-
                   fontWeight:
                       FontWeight.w600,
                 ),
-
-                onSelected: (value) {
-                  if (!value) return;
-
-                  setState(() {
-                    _selectedCategory =
-                        category;
-                  });
-                },
               ),
             );
           }).toList(),
         ),
-      ),
-    );
-  }
-
-  // ============================================================
-  // LOCATION FILTER
-  // ============================================================
-
-  Widget _buildLocationFilter() {
-    final locations =
-        _locations();
-
-    if (locations.length <= 1) {
-      return const SizedBox();
-    }
-
-    return Container(
-      width: double.infinity,
-
-      color:
-          const Color(0xFFF6F7FB),
-
-      padding:
-          const EdgeInsets.fromLTRB(
-        16,
-        12,
-        16,
-        8,
-      ),
-
-      child: Row(
-        children: [
-          const Icon(
-            Icons.location_on_outlined,
-            color:
-                Color(0xFF6B7280),
-          ),
-
-          const SizedBox(
-            width: 8,
-          ),
-
-          Expanded(
-            child: DropdownButtonHideUnderline(
-              child:
-                  DropdownButton<String>(
-                value:
-                    _selectedLocation,
-
-                isExpanded: true,
-
-                items:
-                    locations.map(
-                  (location) {
-                    return DropdownMenuItem<
-                        String>(
-                      value: location,
-
-                      child: Text(
-                        location,
-                        overflow:
-                            TextOverflow
-                                .ellipsis,
-                      ),
-                    );
-                  },
-                ).toList(),
-
-                onChanged: (value) {
-                  if (value == null) {
-                    return;
-                  }
-
-                  setState(() {
-                    _selectedLocation =
-                        value;
-                  });
-                },
-              ),
-            ),
-          ),
-        ],
       ),
     );
   }
@@ -857,7 +734,7 @@ class _HelpExchangeScreenState
     final category =
         _safeText(
       request['category'],
-      'General',
+      'General Assistance',
     );
 
     final location =
@@ -865,9 +742,10 @@ class _HelpExchangeScreenState
       request['location'],
     );
 
-    final urgent =
-        _safeBool(
-      request['urgent'],
+    final status =
+        _safeText(
+      request['status'],
+      'Open',
     );
 
     final posterName =
@@ -881,68 +759,62 @@ class _HelpExchangeScreenState
       request['poster_avatar_url'],
     );
 
-    final createdAt =
-        _formatDate(
-      request['created_at'],
+    final urgent =
+        _safeBool(
+      request['urgent'],
     );
 
-    return Padding(
-      padding:
-          const EdgeInsets.only(
-        bottom: 14,
-      ),
-
+    return Material(
+      color: Colors.white,
+      borderRadius:
+          BorderRadius.circular(20),
       child: InkWell(
         borderRadius:
-            BorderRadius.circular(
-          20,
-        ),
-
+            BorderRadius.circular(20),
         onTap: () =>
             _openRequest(request),
-
         child: Container(
           padding:
-              const EdgeInsets.all(
-            18,
-          ),
-
-          decoration: BoxDecoration(
-            color: Colors.white,
-
+              const EdgeInsets.all(18),
+          decoration:
+              BoxDecoration(
             borderRadius:
-                BorderRadius.circular(
-              20,
+                BorderRadius.circular(20),
+            border: Border.all(
+              color:
+                  const Color(0xFFE6E7E8),
             ),
-
-            boxShadow: [
-              BoxShadow(
-                color:
-                    Colors.black.withAlpha(
-                  10,
-                ),
-
-                blurRadius: 12,
-
-                offset:
-                    const Offset(0, 4),
-              ),
-            ],
           ),
-
           child: Column(
             crossAxisAlignment:
                 CrossAxisAlignment.start,
-
             children: [
-              // ------------------------------------------------
-              // PROFILE
-              // ------------------------------------------------
-
               Row(
+                crossAxisAlignment:
+                    CrossAxisAlignment.start,
                 children: [
-                  _buildPosterAvatar(
-                    avatarUrl,
+                  CircleAvatar(
+                    radius: 24,
+                    backgroundColor:
+                        const Color(
+                      0xFFE8F3EE,
+                    ),
+                    backgroundImage:
+                        avatarUrl.isNotEmpty
+                            ? NetworkImage(
+                                avatarUrl,
+                              )
+                            : null,
+                    child:
+                        avatarUrl.isEmpty
+                            ? const Icon(
+                                Icons.person,
+                                color:
+                                    Color(
+                                  0xFF007749,
+                                ),
+                              )
+                            : null,
                   ),
 
                   const SizedBox(
@@ -952,169 +824,71 @@ class _HelpExchangeScreenState
                   Expanded(
                     child: Column(
                       crossAxisAlignment:
-                          CrossAxisAlignment
-                              .start,
-
+                          CrossAxisAlignment.start,
                       children: [
                         Text(
                           posterName,
-
                           maxLines: 1,
-
                           overflow:
-                              TextOverflow
-                                  .ellipsis,
-
+                              TextOverflow.ellipsis,
                           style:
                               const TextStyle(
                             fontWeight:
-                                FontWeight.bold,
-
+                                FontWeight.w700,
                             fontSize: 15,
                           ),
                         ),
-
                         const SizedBox(
                           height: 4,
                         ),
-
-                        Row(
-                          children: [
-                            if (location
-                                .isNotEmpty) ...[
-                              const Icon(
-                                Icons
-                                    .location_on_outlined,
-
-                                size: 14,
-
-                                color: Color(
-                                  0xFF6B7280,
-                                ),
-                              ),
-
-                              const SizedBox(
-                                width: 3,
-                              ),
-
-                              Expanded(
-                                child: Text(
-                                  location,
-
-                                  maxLines: 1,
-
-                                  overflow:
-                                      TextOverflow
-                                          .ellipsis,
-
-                                  style:
-                                      const TextStyle(
-                                    fontSize:
-                                        12,
-
-                                    color:
-                                        Color(
-                                      0xFF6B7280,
-                                    ),
-                                  ),
-                                ),
-                              ),
-
-                              const SizedBox(
-                                width: 8,
-                              ),
-                            ],
-
-                            Text(
-                              createdAt,
-
-                              style:
-                                  const TextStyle(
-                                fontSize: 12,
-
-                                color: Color(
-                                  0xFF6B7280,
-                                ),
-                              ),
-                            ),
-                          ],
+                        Text(
+                          _formatDate(
+                            request[
+                                'created_at'],
+                          ),
+                          style:
+                              TextStyle(
+                            color: Colors
+                                .grey
+                                .shade600,
+                            fontSize: 12,
+                          ),
                         ),
                       ],
-                    ),
-                  ),
-                ],
-              ),
-
-              const SizedBox(
-                height: 18,
-              ),
-
-              // ------------------------------------------------
-              // TITLE
-              // ------------------------------------------------
-
-              Row(
-                crossAxisAlignment:
-                    CrossAxisAlignment.start,
-
-                children: [
-                  Expanded(
-                    child: Text(
-                      title,
-
-                      style:
-                          const TextStyle(
-                        fontSize: 18,
-
-                        fontWeight:
-                            FontWeight.bold,
-
-                        color:
-                            Color(
-                          0xFF1F2937,
-                        ),
-                      ),
                     ),
                   ),
 
                   if (urgent)
                     Container(
-                      margin:
-                          const EdgeInsets.only(
-                        left: 10,
-                      ),
-
                       padding:
                           const EdgeInsets
                               .symmetric(
-                        horizontal: 10,
+                        horizontal: 9,
                         vertical: 5,
                       ),
-
                       decoration:
                           BoxDecoration(
-                        color: Colors.red
-                            .withAlpha(25),
-
+                        color: const Color(
+                          0xFFFFE8E7,
+                        ),
                         borderRadius:
-                            BorderRadius.circular(
+                            BorderRadius
+                                .circular(
                           20,
                         ),
                       ),
-
                       child:
                           const Text(
                         'URGENT',
-
                         style:
                             TextStyle(
                           color:
-                              Colors.red,
-
+                              Color(
+                            0xFFDE3831,
+                          ),
                           fontSize: 10,
-
                           fontWeight:
-                              FontWeight.bold,
+                              FontWeight.w800,
                         ),
                       ),
                     ),
@@ -1122,167 +896,90 @@ class _HelpExchangeScreenState
               ),
 
               const SizedBox(
-                height: 10,
+                height: 16,
               ),
 
-              // ------------------------------------------------
-              // DESCRIPTION
-              // ------------------------------------------------
+              Text(
+                title,
+                style:
+                    const TextStyle(
+                  fontSize: 19,
+                  fontWeight:
+                      FontWeight.w800,
+                  height: 1.2,
+                ),
+              ),
+
+              const SizedBox(
+                height: 8,
+              ),
 
               Text(
                 description,
-
                 maxLines: 3,
-
                 overflow:
                     TextOverflow.ellipsis,
-
                 style: TextStyle(
                   fontSize: 14,
-
-                  height: 1.4,
-
+                  height: 1.45,
                   color:
                       Colors.grey.shade700,
                 ),
               ),
 
               const SizedBox(
-                height: 16,
+                height: 14,
               ),
-
-              // ------------------------------------------------
-              // CATEGORY
-              // ------------------------------------------------
 
               Wrap(
                 spacing: 8,
-
+                runSpacing: 8,
                 children: [
-                  Container(
-                    padding:
-                        const EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 7,
-                    ),
-
-                    decoration:
-                        BoxDecoration(
-                      color:
-                          const Color(
-                        0xFFF3F4F6,
-                      ),
-
-                      borderRadius:
-                          BorderRadius.circular(
-                        20,
-                      ),
-                    ),
-
-                    child: Row(
-                      mainAxisSize:
-                          MainAxisSize.min,
-
-                      children: [
-                        Icon(
-                          _categoryIcon(
-                            category,
-                          ),
-
-                          size: 15,
-
-                          color:
-                              const Color(
-                            0xFF374151,
-                          ),
-                        ),
-
-                        const SizedBox(
-                          width: 5,
-                        ),
-
-                        Text(
-                          category,
-
-                          style:
-                              const TextStyle(
-                            fontSize: 12,
-
-                            fontWeight:
-                                FontWeight.w600,
-                          ),
-                        ),
-                      ],
-                    ),
+                  _buildInfoChip(
+                    _categoryIcon(category),
+                    category,
                   ),
 
-                  Container(
-                    padding:
-                        const EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 7,
+                  if (location.isNotEmpty)
+                    _buildInfoChip(
+                      Icons
+                          .location_on_outlined,
+                      location,
                     ),
 
-                    decoration:
-                        BoxDecoration(
-                      color: Colors.green
-                          .withAlpha(25),
-
-                      borderRadius:
-                          BorderRadius.circular(
-                        20,
-                      ),
-                    ),
-
-                    child:
-                        const Text(
-                      'OPEN',
-
-                      style: TextStyle(
-                        color:
-                            Colors.green,
-
-                        fontSize: 11,
-
-                        fontWeight:
-                            FontWeight.bold,
-                      ),
-                    ),
+                  _buildStatusChip(
+                    status,
                   ),
                 ],
               ),
 
               const SizedBox(
-                height: 16,
+                height: 14,
               ),
 
-              // ------------------------------------------------
-              // VIEW REQUEST
-              // ------------------------------------------------
-
-              Row(
+              const Row(
+                mainAxisAlignment:
+                    MainAxisAlignment.end,
                 children: [
-                  const Text(
+                  Text(
                     'View request',
-
-                    style: TextStyle(
+                    style:
+                        TextStyle(
                       color:
-                          Color(0xFFFFB300),
-
+                          Color(0xFF007749),
                       fontWeight:
-                          FontWeight.bold,
+                          FontWeight.w700,
                     ),
                   ),
-
-                  const Spacer(),
-
-                  const Icon(
-                    Icons.arrow_forward_ios,
-
-                    size: 16,
-
+                  SizedBox(
+                    width: 5,
+                  ),
+                  Icon(
+                    Icons
+                        .arrow_forward,
+                    size: 18,
                     color:
-                        Color(0xFFFFB300),
+                        Color(0xFF007749),
                   ),
                 ],
               ),
@@ -1293,227 +990,211 @@ class _HelpExchangeScreenState
     );
   }
 
-  // ============================================================
-  // AVATAR
-  // ============================================================
-
-  Widget _buildPosterAvatar(
-    String avatarUrl,
+  Widget _buildInfoChip(
+    IconData icon,
+    String label,
   ) {
-    if (avatarUrl.isEmpty) {
-      return const CircleAvatar(
-        radius: 24,
-
-        backgroundColor:
-            Color(0xFFE5E7EB),
-
-        child: Icon(
-          Icons.person,
-
-          color:
-              Color(0xFF6B7280),
-        ),
-      );
-    }
-
-    return CircleAvatar(
-      radius: 24,
-
-      backgroundColor:
-          const Color(0xFFE5E7EB),
-
-      backgroundImage:
-          NetworkImage(avatarUrl),
-
-      onBackgroundImageError:
-          (_, __) {},
-    );
-  }
-
-  // ============================================================
-  // EMPTY STATE
-  // ============================================================
-
-  Widget _buildEmptyState() {
-    final hasSearchOrFilters =
-        _searchQuery.isNotEmpty ||
-            _selectedCategory != 'All' ||
-            _selectedLocation !=
-                'All Locations';
-
-    return RefreshIndicator(
-      onRefresh: _refreshRequests,
-
-      child: ListView(
-        physics:
-            const AlwaysScrollableScrollPhysics(),
-
+    return Container(
+      padding:
+          const EdgeInsets.symmetric(
+        horizontal: 9,
+        vertical: 7,
+      ),
+      decoration:
+          BoxDecoration(
+        color:
+            const Color(0xFFF4F5F6),
+        borderRadius:
+            BorderRadius.circular(10),
+      ),
+      child: Row(
+        mainAxisSize:
+            MainAxisSize.min,
         children: [
-          const SizedBox(
-            height: 100,
-          ),
-
-          const Icon(
-            Icons.volunteer_activism_outlined,
-
-            size: 75,
-
+          Icon(
+            icon,
+            size: 15,
             color:
-                Color(0xFF9CA3AF),
+                const Color(0xFF59636E),
           ),
-
           const SizedBox(
-            height: 20,
+            width: 5,
           ),
-
           Text(
-            hasSearchOrFilters
-                ? 'No matching requests'
-                : 'No active Help Requests',
-
-            textAlign:
-                TextAlign.center,
-
+            label,
             style:
                 const TextStyle(
-              fontSize: 20,
-
+              fontSize: 11,
               fontWeight:
-                  FontWeight.bold,
+                  FontWeight.w600,
             ),
           ),
-
-          const SizedBox(
-            height: 10,
-          ),
-
-          Padding(
-            padding:
-                const EdgeInsets.symmetric(
-              horizontal: 40,
-            ),
-
-            child: Text(
-              hasSearchOrFilters
-                  ? 'Try changing your search or filters.'
-                  : 'When a fellow South African requests help, it will appear here.',
-
-              textAlign:
-                  TextAlign.center,
-
-              style: const TextStyle(
-                color:
-                    Color(0xFF6B7280),
-              ),
-            ),
-          ),
-
-          if (hasSearchOrFilters) ...[
-            const SizedBox(
-              height: 20,
-            ),
-
-            Center(
-              child: OutlinedButton(
-                onPressed: () {
-                  _searchController.clear();
-
-                  setState(() {
-                    _searchQuery = '';
-                    _selectedCategory =
-                        'All';
-                    _selectedLocation =
-                        'All Locations';
-                  });
-                },
-
-                child:
-                    const Text(
-                  'Clear Filters',
-                ),
-              ),
-            ),
-          ],
         ],
       ),
     );
   }
 
-  // ============================================================
-  // ERROR STATE
-  // ============================================================
+  Widget _buildStatusChip(
+    String status,
+  ) {
+    final color =
+        _statusColor(status);
 
-  Widget _buildErrorState() {
-    return Center(
-      child: Padding(
-        padding:
-            const EdgeInsets.all(24),
-
-        child: Column(
-          mainAxisSize:
-              MainAxisSize.min,
-
-          children: [
-            const Icon(
-              Icons.error_outline,
-
-              size: 60,
-
-              color: Colors.red,
-            ),
-
-            const SizedBox(
-              height: 16,
-            ),
-
-            const Text(
-              'Unable to load Help Requests',
-
-              textAlign:
-                  TextAlign.center,
-
-              style: TextStyle(
-                fontSize: 18,
-
-                fontWeight:
-                    FontWeight.bold,
-              ),
-            ),
-
-            const SizedBox(
-              height: 10,
-            ),
-
-            Text(
-              _errorMessage ??
-                  'An unexpected error occurred.',
-
-              textAlign:
-                  TextAlign.center,
-
-              style: const TextStyle(
-                color:
-                    Color(0xFF6B7280),
-              ),
-            ),
-
-            const SizedBox(
-              height: 20,
-            ),
-
-            ElevatedButton.icon(
-              onPressed:
-                  _loadRequests,
-
-              icon:
-                  const Icon(Icons.refresh),
-
-              label:
-                  const Text('Try Again'),
-            ),
-          ],
+    return Container(
+      padding:
+          const EdgeInsets.symmetric(
+        horizontal: 9,
+        vertical: 7,
+      ),
+      decoration:
+          BoxDecoration(
+        color:
+            color.withAlpha(20),
+        borderRadius:
+            BorderRadius.circular(10),
+      ),
+      child: Text(
+        status.isEmpty
+            ? 'Open'
+            : status,
+        style: TextStyle(
+          fontSize: 11,
+          color: color,
+          fontWeight:
+              FontWeight.w700,
         ),
       ),
+    );
+  }
+
+  // ============================================================
+  // EMPTY
+  // ============================================================
+
+  Widget _buildEmptyState() {
+    return ListView(
+      physics:
+          const AlwaysScrollableScrollPhysics(),
+      padding:
+          const EdgeInsets.symmetric(
+        horizontal: 32,
+      ),
+      children: const [
+        SizedBox(
+          height: 90,
+        ),
+        Icon(
+          Icons
+              .volunteer_activism_outlined,
+          size: 64,
+          color:
+              Color(0xFF9CA3AF),
+        ),
+        SizedBox(
+          height: 18,
+        ),
+        Center(
+          child: Text(
+            'No help requests found',
+            style: TextStyle(
+              fontSize: 20,
+              fontWeight:
+                  FontWeight.w800,
+            ),
+          ),
+        ),
+        SizedBox(
+          height: 8,
+        ),
+        Center(
+          child: Text(
+            'When Sisonke members ask for help, '
+            'their requests will appear here.',
+            textAlign:
+                TextAlign.center,
+            style: TextStyle(
+              fontSize: 14,
+              height: 1.5,
+              color:
+                  Color(0xFF6B7280),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ============================================================
+  // ERROR
+  // ============================================================
+
+  Widget _buildErrorState(
+    String error,
+  ) {
+    return ListView(
+      physics:
+          const AlwaysScrollableScrollPhysics(),
+      padding:
+          const EdgeInsets.symmetric(
+        horizontal: 28,
+      ),
+      children: [
+        const SizedBox(
+          height: 90,
+        ),
+        const Icon(
+          Icons.cloud_off_outlined,
+          size: 62,
+          color:
+              Color(0xFF9CA3AF),
+        ),
+        const SizedBox(
+          height: 18,
+        ),
+        const Center(
+          child: Text(
+            'Unable to load Help Exchange',
+            textAlign:
+                TextAlign.center,
+            style: TextStyle(
+              fontSize: 19,
+              fontWeight:
+                  FontWeight.w800,
+            ),
+          ),
+        ),
+        const SizedBox(
+          height: 10,
+        ),
+        Text(
+          error,
+          textAlign:
+              TextAlign.center,
+          style: const TextStyle(
+            fontSize: 12,
+            color:
+                Color(0xFF6B7280),
+          ),
+        ),
+        const SizedBox(
+          height: 22,
+        ),
+        Center(
+          child:
+              ElevatedButton.icon(
+            onPressed:
+                _refreshRequests,
+            icon:
+                const Icon(
+              Icons.refresh,
+            ),
+            label:
+                const Text(
+              'Try again',
+            ),
+          ),
+        ),
+      ],
     );
   }
 }
