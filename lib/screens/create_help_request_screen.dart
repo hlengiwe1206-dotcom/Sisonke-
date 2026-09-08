@@ -20,6 +20,7 @@ class _CreateHelpRequestScreenState
   final _locationController = TextEditingController();
 
   bool _isSubmitting = false;
+  bool _urgent = false;
 
   String _selectedCategory = 'General Assistance';
 
@@ -64,12 +65,37 @@ class _CreateHelpRequestScreenState
     });
 
     try {
+      /*
+       * The Sisonke help_requests table is built around:
+       * requester_id
+       * post_id
+       * status
+       * category
+       * location
+       * urgent
+       *
+       * We therefore create the underlying post first,
+       * then connect the help request to that post.
+       */
+
+      final postResponse = await supabase
+          .from('posts')
+          .insert({
+            'user_id': user.id,
+            'content': _descriptionController.text.trim(),
+          })
+          .select('id')
+          .single();
+
+      final String postId = postResponse['id'].toString();
+
       await supabase.from('help_requests').insert({
-        'user_id': user.id,
-        'title': _titleController.text.trim(),
-        'description': _descriptionController.text.trim(),
+        'post_id': postId,
+        'requester_id': user.id,
+        'status': 'open',
         'category': _selectedCategory,
         'location': _locationController.text.trim(),
+        'urgent': _urgent,
       });
 
       if (!mounted) return;
@@ -78,10 +104,17 @@ class _CreateHelpRequestScreenState
         'Your help request has been posted successfully.',
       );
 
+      await Future<void>.delayed(
+        const Duration(milliseconds: 500),
+      );
+
+      if (!mounted) return;
+
       Navigator.of(context).pop(true);
     } on PostgrestException catch (error) {
       debugPrint(
-        'Database error creating help request: ${error.message}',
+        'Database error creating help request: '
+        '${error.message}',
       );
 
       if (!mounted) return;
@@ -119,8 +152,9 @@ class _CreateHelpRequestScreenState
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(message),
-        backgroundColor:
-            isError ? Colors.red.shade700 : Colors.green.shade700,
+        backgroundColor: isError
+            ? Colors.red.shade700
+            : Colors.green.shade700,
         behavior: SnackBarBehavior.floating,
       ),
     );
@@ -213,14 +247,17 @@ class _CreateHelpRequestScreenState
 
               TextFormField(
                 controller: _titleController,
-                textCapitalization: TextCapitalization.sentences,
+                textCapitalization:
+                    TextCapitalization.sentences,
                 decoration: _inputDecoration(
                   label: 'What do you need help with?',
-                  hint: 'Example: I need assistance finding work',
+                  hint:
+                      'Example: I need assistance finding work',
                   icon: Icons.title,
                 ),
                 validator: (value) {
-                  if (value == null || value.trim().isEmpty) {
+                  if (value == null ||
+                      value.trim().isEmpty) {
                     return 'Please enter a title for your request.';
                   }
 
@@ -263,7 +300,8 @@ class _CreateHelpRequestScreenState
                 controller: _descriptionController,
                 minLines: 5,
                 maxLines: 8,
-                textCapitalization: TextCapitalization.sentences,
+                textCapitalization:
+                    TextCapitalization.sentences,
                 decoration: _inputDecoration(
                   label: 'Describe your situation',
                   hint:
@@ -271,7 +309,8 @@ class _CreateHelpRequestScreenState
                   icon: Icons.description_outlined,
                 ),
                 validator: (value) {
-                  if (value == null || value.trim().isEmpty) {
+                  if (value == null ||
+                      value.trim().isEmpty) {
                     return 'Please describe the help you need.';
                   }
 
@@ -287,14 +326,16 @@ class _CreateHelpRequestScreenState
 
               TextFormField(
                 controller: _locationController,
-                textCapitalization: TextCapitalization.words,
+                textCapitalization:
+                    TextCapitalization.words,
                 decoration: _inputDecoration(
                   label: 'Location',
                   hint: 'Example: Soweto, Johannesburg',
                   icon: Icons.location_on_outlined,
                 ),
                 validator: (value) {
-                  if (value == null || value.trim().isEmpty) {
+                  if (value == null ||
+                      value.trim().isEmpty) {
                     return 'Please enter your location.';
                   }
 
@@ -302,18 +343,57 @@ class _CreateHelpRequestScreenState
                 },
               ),
 
-              const SizedBox(height: 32),
+              const SizedBox(height: 16),
+
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 6,
+                ),
+                decoration: BoxDecoration(
+                  color: Colors.red.withOpacity(0.06),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(
+                    color: Colors.red.withOpacity(0.18),
+                  ),
+                ),
+                child: SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text(
+                    'This request is urgent',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  subtitle: const Text(
+                    'Use this for requests that need quicker attention.',
+                  ),
+                  value: _urgent,
+                  activeColor: Colors.red,
+                  onChanged: _isSubmitting
+                      ? null
+                      : (value) {
+                          setState(() {
+                            _urgent = value;
+                          });
+                        },
+                ),
+              ),
+
+              const SizedBox(height: 28),
 
               SizedBox(
-                height: 56,
+                height: 58,
                 child: ElevatedButton.icon(
-                  onPressed:
-                      _isSubmitting ? null : _submitHelpRequest,
+                  onPressed: _isSubmitting
+                      ? null
+                      : _submitHelpRequest,
                   icon: _isSubmitting
                       ? const SizedBox(
                           width: 22,
                           height: 22,
-                          child: CircularProgressIndicator(
+                          child:
+                              CircularProgressIndicator(
                             strokeWidth: 2,
                             color: Colors.white,
                           ),
@@ -334,7 +414,8 @@ class _CreateHelpRequestScreenState
                     backgroundColor: southAfricaGreen,
                     foregroundColor: Colors.white,
                     shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(16),
+                      borderRadius:
+                          BorderRadius.circular(16),
                     ),
                   ),
                 ),
@@ -343,8 +424,9 @@ class _CreateHelpRequestScreenState
               const SizedBox(height: 20),
 
               Text(
-                'By posting, you allow other Sisonke community members '
-                'to see your request and connect with you through the app.',
+                'By posting, you allow other Sisonke community '
+                'members to see your request and connect with '
+                'you through the app.',
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   fontSize: 12,
@@ -359,4 +441,4 @@ class _CreateHelpRequestScreenState
       ),
     );
   }
-}
+} 
