@@ -22,10 +22,11 @@ class NotificationsScreen extends StatelessWidget {
       appBar: AppBar(
         title: const Text('Notifications'),
       ),
-
       body: userId == null
           ? const Center(
-              child: Text('Please sign in to view notifications.'),
+              child: Text(
+                'Please sign in to view notifications.',
+              ),
             )
           : StreamBuilder<List<Map<String, dynamic>>>(
               stream: supabase
@@ -35,9 +36,13 @@ class NotificationsScreen extends StatelessWidget {
               builder: (context, snapshot) {
                 if (snapshot.hasError) {
                   return Center(
-                    child: Text(
-                      'Error loading notifications:\n${snapshot.error}',
-                      textAlign: TextAlign.center,
+                    child: Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Text(
+                        'Error loading notifications:\n\n'
+                        '${snapshot.error}',
+                        textAlign: TextAlign.center,
+                      ),
                     ),
                   );
                 }
@@ -48,7 +53,8 @@ class NotificationsScreen extends StatelessWidget {
                   );
                 }
 
-                final notifications = snapshot.data!;
+                final notifications =
+                    List<Map<String, dynamic>>.from(snapshot.data!);
 
                 notifications.sort((a, b) {
                   final aDate = DateTime.tryParse(
@@ -65,122 +71,43 @@ class NotificationsScreen extends StatelessWidget {
                 });
 
                 if (notifications.isEmpty) {
-                  return const Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(
-                          Icons.notifications_none,
-                          size: 70,
-                          color: Colors.grey,
-                        ),
-                        SizedBox(height: 16),
-                        Text(
-                          'No notifications yet',
-                          style: TextStyle(
-                            fontSize: 18,
-                            color: Colors.grey,
-                          ),
-                        ),
-                      ],
-                    ),
-                  );
+                  return const _EmptyNotifications();
                 }
 
                 return ListView.separated(
                   padding: const EdgeInsets.all(12),
                   itemCount: notifications.length,
-                  separatorBuilder: (_, __) =>
-                      const SizedBox(height: 8),
-
+                  separatorBuilder: (context, index) {
+                    return const SizedBox(height: 8);
+                  },
                   itemBuilder: (context, index) {
                     final notification = notifications[index];
 
-                    final isUnread =
-                        notification['read_at'] == null;
+                    return _NotificationCard(
+                      notification: notification,
+                      onTap: () async {
+                        final isUnread =
+                            notification['read_at'] == null;
 
-                    return Card(
-                      elevation: isUnread ? 3 : 0,
-                      color: isUnread
-                          ? Colors.blue.shade50
-                          : Colors.white,
+                        if (isUnread) {
+                          await _markAsRead(
+                            notification['id'].toString(),
+                          );
+                        }
 
-                      child: ListTile(
-                        leading: CircleAvatar(
-                          child: Icon(
-                            _getNotificationIcon(
-                              notification['type']?.toString(),
+                        if (!context.mounted) {
+                          return;
+                        }
+
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text(
+                              notification['title']?.toString() ??
+                                  'Notification',
                             ),
                           ),
-                        ),
-
-                        title: Text(
-                          notification['title']?.toString() ??
-                              'Notification',
-                          style: TextStyle(
-                            fontWeight: isUnread
-                                ? FontWeight.bold
-                                : FontWeight.normal,
-                          ),
-                        ),
-
-                        subtitle: Column(
-                          crossAxisAlignment:
-                              CrossAxisAlignment.start,
-                          children: [
-                            const SizedBox(height: 4),
-
-                            Text(
-                              notification['body']?.toString() ??
-                                  '',
-                            ),
-
-                            const SizedBox(height: 6),
-
-                            Text(
-                              _formatDate(
-                                notification['created_at'],
-                              ),
-                              style: TextStyle(
-                                fontSize: 11,
-                                color: Colors.grey.shade600,
-                              ),
-                            ),
-                          ],
-                        ),
-
-                        trailing: isUnread
-                            ? Container(
-                                width: 10,
-                                height: 10,
-                                decoration: const BoxDecoration(
-                                  color: Colors.red,
-                                  shape: BoxShape.circle,
-                                ),
-                              )
-                            : null,
-
-                        onTap: () async {
-                          if (isUnread) {
-                            await _markAsRead(
-                              notification['id'].toString(),
-                            );
-                          }
-
-                          if (context.mounted) {
-                            ScaffoldMessenger.of(context)
-                                .showSnackBar(
-                              SnackBar(
-                                content: Text(
-                                  notification['title']
-                                          ?.toString() ??
-                                      'Notification',
-                                ),
-                              ),
-                            );
-                          }
-                        },
-                      ),
+                        );
+                      },
                     );
                   },
                 );
@@ -188,20 +115,98 @@ class NotificationsScreen extends StatelessWidget {
             ),
     );
   }
+}
 
-  IconData _getNotificationIcon(String? type) {
+class _NotificationCard extends StatelessWidget {
+  final Map<String, dynamic> notification;
+  final Future<void> Function() onTap;
+
+  const _NotificationCard({
+    required this.notification,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isUnread = notification['read_at'] == null;
+
+    final notificationType =
+        notification['type']?.toString() ?? '';
+
+    return Card(
+      elevation: isUnread ? 3 : 0,
+      color: isUnread
+          ? Theme.of(context).colorScheme.primaryContainer
+          : Theme.of(context).cardColor,
+      child: ListTile(
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 16,
+          vertical: 10,
+        ),
+        leading: CircleAvatar(
+          child: Icon(
+            _getNotificationIcon(notificationType),
+          ),
+        ),
+        title: Text(
+          notification['title']?.toString() ??
+              'Notification',
+          style: TextStyle(
+            fontWeight: isUnread
+                ? FontWeight.bold
+                : FontWeight.normal,
+          ),
+        ),
+        subtitle: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const SizedBox(height: 6),
+            Text(
+              notification['body']?.toString() ?? '',
+            ),
+            const SizedBox(height: 8),
+            Text(
+              _formatDate(notification['created_at']),
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ],
+        ),
+        trailing: isUnread
+            ? Container(
+                width: 10,
+                height: 10,
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.primary,
+                  shape: BoxShape.circle,
+                ),
+              )
+            : null,
+        onTap: () async {
+          await onTap();
+        },
+      ),
+    );
+  }
+
+  IconData _getNotificationIcon(String type) {
     switch (type) {
-      case 'help_request':
-        return Icons.volunteer_activism;
+      case 'closing_soon':
+        return Icons.timer_outlined;
 
-      case 'offer':
-        return Icons.handshake;
+      case 'closing_today':
+        return Icons.warning_amber_rounded;
 
-      case 'connection':
-        return Icons.people;
+      case 'opportunity_match':
+        return Icons.auto_awesome;
 
-      case 'message':
-        return Icons.message;
+      case 'new_opportunity':
+        return Icons.campaign_outlined;
+
+      case 'saved_opportunity':
+        return Icons.bookmark;
+
+      case 'high_match':
+        return Icons.star;
 
       default:
         return Icons.notifications;
@@ -228,5 +233,42 @@ class NotificationsScreen extends StatelessWidget {
         '${localDate.year} '
         '${localDate.hour.toString().padLeft(2, '0')}:'
         '${localDate.minute.toString().padLeft(2, '0')}';
+  }
+}
+
+class _EmptyNotifications extends StatelessWidget {
+  const _EmptyNotifications();
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.notifications_none,
+              size: 72,
+              color: Colors.grey.shade500,
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'No notifications yet',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Opportunity alerts and closing-date reminders '
+              'will appear here.',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: Colors.grey.shade600,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 } 
