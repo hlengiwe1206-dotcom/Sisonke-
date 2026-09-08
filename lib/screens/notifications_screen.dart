@@ -1,71 +1,118 @@
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
-class NotificationsScreen extends StatelessWidget {
+class NotificationsScreen extends StatefulWidget {
   const NotificationsScreen({super.key});
 
   @override
-  Widget build(BuildContext context) {
-    final notifications = [
-      {
-        'title': 'Welcome to Sisonke',
-        'message': 'Your account is ready. Start exploring opportunities.',
-        'time': 'Just now',
-        'read': false,
-      },
-      {
-        'title': 'New Opportunity',
-        'message': 'A new opportunity matching your interests is available.',
-        'time': '2 hours ago',
-        'read': false,
-      },
-      {
-        'title': 'Profile Update',
-        'message': 'Remember to keep your profile information up to date.',
-        'time': 'Yesterday',
-        'read': true,
-      },
-    ];
+  State<NotificationsScreen> createState() =>
+      _NotificationsScreenState();
+}
 
+class _NotificationsScreenState extends State<NotificationsScreen> {
+  final SupabaseClient supabase = Supabase.instance.client;
+
+  bool isLoading = true;
+  List<Map<String, dynamic>> notifications = [];
+
+  @override
+  void initState() {
+    super.initState();
+    loadNotifications();
+  }
+
+  Future<void> loadNotifications() async {
+    try {
+      final user = supabase.auth.currentUser;
+
+      if (user == null) {
+        setState(() {
+          notifications = [];
+          isLoading = false;
+        });
+        return;
+      }
+
+      final data = await supabase
+          .from('notifications')
+          .select()
+          .eq('user_id', user.id)
+          .order('created_at', ascending: false);
+
+      if (!mounted) return;
+
+      setState(() {
+        notifications =
+            List<Map<String, dynamic>>.from(data);
+        isLoading = false;
+      });
+    } catch (error) {
+      if (!mounted) return;
+
+      setState(() {
+        isLoading = false;
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Unable to load notifications: $error',
+          ),
+        ),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Notifications'),
       ),
-      body: ListView.separated(
-        padding: const EdgeInsets.all(16),
-        itemCount: notifications.length,
-        separatorBuilder: (context, index) =>
-            const SizedBox(height: 10),
-        itemBuilder: (context, index) {
-          final notification = notifications[index];
-          final isRead = notification['read'] as bool;
+      body: isLoading
+          ? const Center(
+              child: CircularProgressIndicator(),
+            )
+          : notifications.isEmpty
+              ? const Center(
+                  child: Text('No notifications yet'),
+                )
+              : ListView.separated(
+                  padding: const EdgeInsets.all(16),
+                  itemCount: notifications.length,
+                  separatorBuilder: (context, index) =>
+                      const SizedBox(height: 10),
+                  itemBuilder: (context, index) {
+                    final notification =
+                        notifications[index];
 
-          return Card(
-            child: ListTile(
-              leading: CircleAvatar(
-                child: Icon(
-                  isRead
-                      ? Icons.notifications_none
-                      : Icons.notifications,
+                    final isRead =
+                        notification['is_read'] ?? false;
+
+                    return Card(
+                      child: ListTile(
+                        leading: CircleAvatar(
+                          child: Icon(
+                            isRead
+                                ? Icons.notifications_none
+                                : Icons.notifications,
+                          ),
+                        ),
+                        title: Text(
+                          notification['title'] ?? '',
+                          style: TextStyle(
+                            fontWeight: isRead
+                                ? FontWeight.normal
+                                : FontWeight.bold,
+                          ),
+                        ),
+                        subtitle: Text(
+                          notification['body'] ?? '',
+                        ),
+                      ),
+                    );
+                  },
                 ),
-              ),
-              title: Text(
-                notification['title'] as String,
-                style: TextStyle(
-                  fontWeight:
-                      isRead ? FontWeight.normal : FontWeight.bold,
-                ),
-              ),
-              subtitle: Text(
-                notification['message'] as String,
-              ),
-              trailing: Text(
-                notification['time'] as String,
-                style: const TextStyle(fontSize: 12),
-              ),
-            ),
-          );
-        },
-      ),
     );
   }
 }
