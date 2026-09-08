@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 
 class NotificationsScreen extends StatefulWidget {
   const NotificationsScreen({super.key});
@@ -9,299 +8,190 @@ class NotificationsScreen extends StatefulWidget {
 }
 
 class _NotificationsScreenState extends State<NotificationsScreen> {
-  final SupabaseClient _supabase = Supabase.instance.client;
+  final List<AppNotification> _notifications = [
+    AppNotification(
+      title: 'Welcome to Sisonke',
+      message: 'Stay updated with the latest opportunities and activity.',
+      time: DateTime.now(),
+      isRead: false,
+      icon: Icons.notifications_active_outlined,
+    ),
+  ];
 
-  bool _isLoading = true;
-  List<Map<String, dynamic>> _notifications = [];
-
-  @override
-  void initState() {
-    super.initState();
-    _loadNotifications();
+  int get _unreadCount {
+    return _notifications.where((notification) => !notification.isRead).length;
   }
 
-  Future<void> _loadNotifications() async {
-    try {
-      setState(() {
-        _isLoading = true;
-      });
-
-      final user = _supabase.auth.currentUser;
-
-      if (user == null) {
-        if (mounted) {
-          setState(() {
-            _notifications = [];
-            _isLoading = false;
-          });
-        }
-        return;
+  void _markAllAsRead() {
+    setState(() {
+      for (final notification in _notifications) {
+        notification.isRead = true;
       }
-
-      final response = await _supabase
-          .from('notifications')
-          .select()
-          .eq('user_id', user.id)
-          .order('created_at', ascending: false);
-
-      if (mounted) {
-        setState(() {
-          _notifications =
-              List<Map<String, dynamic>>.from(response);
-          _isLoading = false;
-        });
-      }
-    } catch (error) {
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-        });
-
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              'Unable to load notifications: $error',
-            ),
-          ),
-        );
-      }
-    }
+    });
   }
 
-  Future<void> _markAsRead(
-    String notificationId,
-  ) async {
-    try {
-      await _supabase
-          .from('notifications')
-          .update({
-            'is_read': true,
-          })
-          .eq('id', notificationId);
-
-      setState(() {
-        final index = _notifications.indexWhere(
-          (notification) =>
-              notification['id'].toString() ==
-              notificationId,
-        );
-
-        if (index != -1) {
-          _notifications[index]['is_read'] = true;
-        }
-      });
-    } catch (error) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              'Unable to update notification: $error',
-            ),
-          ),
-        );
-      }
-    }
+  void _markAsRead(AppNotification notification) {
+    setState(() {
+      notification.isRead = true;
+    });
   }
 
-  Future<void> _markAllAsRead() async {
-    try {
-      final user = _supabase.auth.currentUser;
-
-      if (user == null) {
-        return;
-      }
-
-      await _supabase
-          .from('notifications')
-          .update({
-            'is_read': true,
-          })
-          .eq('user_id', user.id)
-          .eq('is_read', false);
-
-      setState(() {
-        for (final notification in _notifications) {
-          notification['is_read'] = true;
-        }
-      });
-    } catch (error) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              'Unable to update notifications: $error',
-            ),
-          ),
-        );
-      }
-    }
+  void _deleteNotification(AppNotification notification) {
+    setState(() {
+      _notifications.remove(notification);
+    });
   }
 
-  IconData _getNotificationIcon(
-    String? notificationType,
-  ) {
-    switch (notificationType) {
-      case 'opportunity':
-        return Icons.work_outline;
+  String _formatTime(DateTime dateTime) {
+    final difference = DateTime.now().difference(dateTime);
 
-      case 'help_request':
-        return Icons.volunteer_activism_outlined;
-
-      case 'message':
-        return Icons.message_outlined;
-
-      case 'system':
-        return Icons.notifications_outlined;
-
-      default:
-        return Icons.notifications_outlined;
+    if (difference.inMinutes < 1) {
+      return 'Just now';
     }
+
+    if (difference.inMinutes < 60) {
+      return '${difference.inMinutes}m ago';
+    }
+
+    if (difference.inHours < 24) {
+      return '${difference.inHours}h ago';
+    }
+
+    if (difference.inDays == 1) {
+      return 'Yesterday';
+    }
+
+    return '${difference.inDays}d ago';
   }
 
   @override
   Widget build(BuildContext context) {
-    final unreadCount = _notifications.where(
-      (notification) =>
-          notification['is_read'] != true,
-    ).length;
-
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Notifications'),
+        title: Text(
+          _unreadCount > 0
+              ? 'Notifications ($_unreadCount)'
+              : 'Notifications',
+        ),
         actions: [
-          if (unreadCount > 0)
+          if (_notifications.isNotEmpty)
             TextButton(
               onPressed: _markAllAsRead,
-              child: const Text(
-                'Mark all read',
-              ),
+              child: const Text('Mark all read'),
             ),
         ],
       ),
-      body: RefreshIndicator(
-        onRefresh: _loadNotifications,
-        child: _isLoading
-            ? const Center(
-                child: CircularProgressIndicator(),
-              )
-            : _notifications.isEmpty
-                ? ListView(
-                    children: const [
-                      SizedBox(
-                        height: 200,
-                      ),
-                      Center(
-                        child: Column(
-                          children: [
-                            Icon(
-                              Icons.notifications_none,
-                              size: 64,
-                            ),
-                            SizedBox(
-                              height: 16,
-                            ),
-                            Text(
-                              'No notifications yet',
-                              style: TextStyle(
-                                fontSize: 18,
-                                fontWeight:
-                                    FontWeight.w600,
-                              ),
-                            ),
-                            SizedBox(
-                              height: 8,
-                            ),
-                            Text(
-                              'You are all caught up.',
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  )
-                : ListView.separated(
-                    padding:
-                        const EdgeInsets.all(12),
-                    itemCount:
-                        _notifications.length,
-                    separatorBuilder:
-                        (
-                          context,
-                          index,
-                        ) =>
-                            const SizedBox(
-                      height: 8,
+      body: _notifications.isEmpty
+          ? const _EmptyNotifications()
+          : ListView.separated(
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              itemCount: _notifications.length,
+              separatorBuilder: (_, __) =>
+                  const Divider(height: 1),
+              itemBuilder: (context, index) {
+                final notification = _notifications[index];
+
+                return Dismissible(
+                  key: ValueKey(
+                    '${notification.title}-${notification.time}',
+                  ),
+                  direction: DismissDirection.endToStart,
+                  background: Container(
+                    alignment: Alignment.centerRight,
+                    padding: const EdgeInsets.only(right: 24),
+                    color: Colors.red,
+                    child: const Icon(
+                      Icons.delete_outline,
+                      color: Colors.white,
                     ),
-                    itemBuilder:
-                        (
-                          context,
-                          index,
-                        ) {
-                      final notification =
-                          _notifications[index];
-
-                      final bool isRead =
-                          notification['is_read'] ==
-                              true;
-
-                      final String title =
-                          notification['title']
-                                  ?.toString() ??
-                              'Notification';
-
-                      final String message =
-                          notification['message']
-                                  ?.toString() ??
-                              '';
-
-                      final String type =
-                          notification['type']
-                                  ?.toString() ??
-                              'system';
-
-                      return Card(
-                        elevation: isRead ? 0 : 2,
-                        child: ListTile(
-                          leading: CircleAvatar(
-                            child: Icon(
-                              _getNotificationIcon(
-                                type,
-                              ),
-                            ),
-                          ),
-                          title: Text(
-                            title,
-                            style: TextStyle(
-                              fontWeight: isRead
-                                  ? FontWeight.normal
-                                  : FontWeight.bold,
-                            ),
-                          ),
-                          subtitle: Text(
-                            message,
-                          ),
-                          trailing: isRead
-                              ? null
-                              : const Icon(
-                                  Icons.circle,
-                                  size: 12,
-                                ),
-                          onTap: () async {
-                            final id =
-                                notification['id']
-                                    ?.toString();
-
-                            if (id != null &&
-                                !isRead) {
-                              await _markAsRead(
-                                id,
-                              );
-                            }
-                          },
-                        ),
-                      );
+                  ),
+                  onDismissed: (_) {
+                    _deleteNotification(notification);
+                  },
+                  child: ListTile(
+                    leading: CircleAvatar(
+                      child: Icon(notification.icon),
+                    ),
+                    title: Text(
+                      notification.title,
+                      style: TextStyle(
+                        fontWeight: notification.isRead
+                            ? FontWeight.normal
+                            : FontWeight.bold,
+                      ),
+                    ),
+                    subtitle: Text(
+                      notification.message,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    trailing: Text(
+                      _formatTime(notification.time),
+                      style: Theme.of(context)
+                          .textTheme
+                          .bodySmall,
+                    ),
+                    onTap: () {
+                      _markAsRead(notification);
                     },
                   ),
+                );
+              },
+            ),
+    );
+  }
+}
+
+class AppNotification {
+  final String title;
+  final String message;
+  final DateTime time;
+  final IconData icon;
+  bool isRead;
+
+  AppNotification({
+    required this.title,
+    required this.message,
+    required this.time,
+    required this.icon,
+    required this.isRead,
+  });
+}
+
+class _EmptyNotifications extends StatelessWidget {
+  const _EmptyNotifications();
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.notifications_none,
+              size: 72,
+              color: Colors.grey.shade400,
+            ),
+            const SizedBox(height: 16),
+            const Text(
+              'No notifications yet',
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'New activity and updates will appear here.',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: Colors.grey.shade600,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
