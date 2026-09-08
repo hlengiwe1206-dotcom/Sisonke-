@@ -22,17 +22,21 @@ class _NotificationScreenState extends State<NotificationScreen> {
 
   Future<void> _loadNotifications() async {
     try {
-      setState(() {
-        _isLoading = true;
-      });
+      if (mounted) {
+        setState(() {
+          _isLoading = true;
+        });
+      }
 
       final user = supabase.auth.currentUser;
 
       if (user == null) {
-        setState(() {
-          _notifications = [];
-          _isLoading = false;
-        });
+        if (mounted) {
+          setState(() {
+            _notifications = [];
+            _isLoading = false;
+          });
+        }
         return;
       }
 
@@ -45,8 +49,7 @@ class _NotificationScreenState extends State<NotificationScreen> {
       if (!mounted) return;
 
       setState(() {
-        _notifications =
-            List<Map<String, dynamic>>.from(response);
+        _notifications = List<Map<String, dynamic>>.from(response);
         _isLoading = false;
       });
     } catch (error) {
@@ -66,9 +69,7 @@ class _NotificationScreenState extends State<NotificationScreen> {
     }
   }
 
-  Future<void> _markAsRead(
-    Map<String, dynamic> notification,
-  ) async {
+  Future<void> _markAsRead(Map<String, dynamic> notification) async {
     try {
       final notificationId = notification['id'];
 
@@ -77,7 +78,7 @@ class _NotificationScreenState extends State<NotificationScreen> {
       await supabase
           .from('notifications')
           .update({
-            'read_at': DateTime.now().toIso8601String(),
+            'is_read': true,
           })
           .eq('id', notificationId);
 
@@ -89,8 +90,7 @@ class _NotificationScreenState extends State<NotificationScreen> {
         );
 
         if (index != -1) {
-          _notifications[index]['read_at'] =
-              DateTime.now().toIso8601String();
+          _notifications[index]['is_read'] = true;
         }
       });
     } catch (error) {
@@ -99,7 +99,7 @@ class _NotificationScreenState extends State<NotificationScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            'Unable to mark notification as read: $error',
+            'Unable to update notification: $error',
           ),
         ),
       );
@@ -115,206 +115,274 @@ class _NotificationScreenState extends State<NotificationScreen> {
       await supabase
           .from('notifications')
           .update({
-            'read_at': DateTime.now().toIso8601String(),
+            'is_read': true,
           })
           .eq('user_id', user.id)
-          .isFilter('read_at', null);
+          .eq('is_read', false);
 
-      await _loadNotifications();
+      if (!mounted) return;
+
+      setState(() {
+        for (final notification in _notifications) {
+          notification['is_read'] = true;
+        }
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('All notifications marked as read'),
+        ),
+      );
     } catch (error) {
       if (!mounted) return;
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            'Unable to mark all notifications as read: $error',
+            'Unable to update notifications: $error',
           ),
         ),
       );
     }
   }
 
-  IconData _getNotificationIcon(String? type) {
-    switch (type) {
-      case 'closing_date':
-      case 'deadline':
-        return Icons.schedule;
+  Future<void> _deleteNotification(
+    Map<String, dynamic> notification,
+  ) async {
+    try {
+      final notificationId = notification['id'];
 
-      case 'opportunity_match':
-      case 'personalised_match':
-        return Icons.auto_awesome;
+      if (notificationId == null) return;
 
-      case 'saved_opportunity':
-        return Icons.bookmark;
+      await supabase
+          .from('notifications')
+          .delete()
+          .eq('id', notificationId);
 
-      case 'help_request':
-        return Icons.volunteer_activism;
+      if (!mounted) return;
 
-      case 'offer':
-        return Icons.handshake;
+      setState(() {
+        _notifications.removeWhere(
+          (item) => item['id'] == notificationId,
+        );
+      });
 
-      case 'connection':
-        return Icons.people;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Notification deleted'),
+        ),
+      );
+    } catch (error) {
+      if (!mounted) return;
 
-      case 'message':
-        return Icons.message;
-
-      default:
-        return Icons.notifications;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Unable to delete notification: $error',
+          ),
+        ),
+      );
     }
   }
 
-  String _formatDate(dynamic date) {
-    if (date == null) {
+  String _formatDate(dynamic value) {
+    if (value == null) {
       return '';
     }
 
-    final parsedDate = DateTime.tryParse(
-      date.toString(),
-    );
+    try {
+      final date = DateTime.parse(value.toString()).toLocal();
+      final now = DateTime.now();
+      final difference = now.difference(date);
 
-    if (parsedDate == null) {
+      if (difference.inMinutes < 1) {
+        return 'Just now';
+      }
+
+      if (difference.inMinutes < 60) {
+        return '${difference.inMinutes} min ago';
+      }
+
+      if (difference.inHours < 24) {
+        return '${difference.inHours} hr ago';
+      }
+
+      if (difference.inDays == 1) {
+        return 'Yesterday';
+      }
+
+      if (difference.inDays < 7) {
+        return '${difference.inDays} days ago';
+      }
+
+      return '${date.day}/${date.month}/${date.year}';
+    } catch (_) {
       return '';
     }
+  }
 
-    final localDate = parsedDate.toLocal();
+  IconData _notificationIcon(String? type) {
+    switch (type?.toLowerCase()) {
+      case 'message':
+      case 'chat':
+        return Icons.chat_bubble_outline;
 
-    final day = localDate.day.toString().padLeft(2, '0');
-    final month = localDate.month.toString().padLeft(2, '0');
-    final year = localDate.year.toString();
+      case 'opportunity':
+      case 'job':
+        return Icons.business_center_outlined;
 
-    final hour =
-        localDate.hour.toString().padLeft(2, '0');
+      case 'application':
+        return Icons.description_outlined;
 
-    final minute =
-        localDate.minute.toString().padLeft(2, '0');
+      case 'alert':
+      case 'warning':
+        return Icons.warning_amber_rounded;
 
-    return '$day/$month/$year $hour:$minute';
+      case 'success':
+        return Icons.check_circle_outline;
+
+      default:
+        return Icons.notifications_outlined;
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    final unreadCount = _notifications.where((notification) {
-      return notification['read_at'] == null;
-    }).length;
+    final unreadCount = _notifications.where(
+      (notification) => notification['is_read'] != true,
+    ).length;
 
     return Scaffold(
       appBar: AppBar(
         title: const Text(
           'Notifications',
         ),
+        centerTitle: false,
         actions: [
           if (unreadCount > 0)
-            IconButton(
-              tooltip: 'Mark all as read',
-              icon: const Icon(
-                Icons.done_all,
-              ),
+            TextButton(
               onPressed: _markAllAsRead,
+              child: const Text(
+                'Mark all read',
+              ),
             ),
-
-          IconButton(
-            tooltip: 'Refresh',
-            icon: const Icon(
-              Icons.refresh,
-            ),
-            onPressed: _loadNotifications,
-          ),
         ],
       ),
-
       body: RefreshIndicator(
         onRefresh: _loadNotifications,
-
         child: _isLoading
             ? const Center(
-                child:
-                    CircularProgressIndicator(),
+                child: CircularProgressIndicator(),
               )
-
             : _notifications.isEmpty
                 ? ListView(
+                    physics:
+                        const AlwaysScrollableScrollPhysics(),
                     children: const [
-                      SizedBox(height: 120),
-
+                      SizedBox(
+                        height: 180,
+                      ),
                       Icon(
                         Icons.notifications_none,
                         size: 70,
                         color: Colors.grey,
                       ),
-
-                      SizedBox(height: 16),
-
+                      SizedBox(
+                        height: 16,
+                      ),
                       Center(
                         child: Text(
                           'No notifications yet',
                           style: TextStyle(
                             fontSize: 18,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                      SizedBox(
+                        height: 8,
+                      ),
+                      Center(
+                        child: Text(
+                          'You are all caught up.',
+                          style: TextStyle(
                             color: Colors.grey,
                           ),
                         ),
                       ),
                     ],
                   )
-
                 : ListView.separated(
-                    padding:
-                        const EdgeInsets.all(12),
-
-                    itemCount:
-                        _notifications.length,
-
-                    separatorBuilder:
-                        (_, __) =>
-                            const SizedBox(height: 8),
-
-                    itemBuilder:
-                        (context, index) {
+                    physics:
+                        const AlwaysScrollableScrollPhysics(),
+                    padding: const EdgeInsets.symmetric(
+                      vertical: 8,
+                    ),
+                    itemCount: _notifications.length,
+                    separatorBuilder: (
+                      context,
+                      index,
+                    ) {
+                      return const Divider(
+                        height: 1,
+                      );
+                    },
+                    itemBuilder: (
+                      context,
+                      index,
+                    ) {
                       final notification =
                           _notifications[index];
 
                       final bool isUnread =
-                          notification['read_at'] ==
-                              null;
+                          notification['is_read'] != true;
 
                       final String title =
-                          notification['title']
-                                  ?.toString() ??
+                          notification['title']?.toString() ??
                               'Notification';
 
                       final String body =
-                          notification['body']
-                                  ?.toString() ??
-                              '';
+                          notification['body']?.toString() ?? '';
 
                       final String type =
-                          notification['type']
-                                  ?.toString() ??
-                              '';
+                          notification['type']?.toString() ?? '';
 
                       final String date =
                           _formatDate(
-                        notification[
-                            'created_at'],
+                        notification['created_at'],
                       );
 
-                      return Card(
-                        elevation:
-                            isUnread ? 3 : 0,
-
-                        color: isUnread
-                            ? Colors.blue.shade50
-                            : Colors.white,
-
+                      return Dismissible(
+                        key: ValueKey(
+                          notification['id'] ??
+                              '$index-$title',
+                        ),
+                        direction:
+                            DismissDirection.endToStart,
+                        background: Container(
+                          alignment:
+                              Alignment.centerRight,
+                          padding:
+                              const EdgeInsets.only(
+                            right: 24,
+                          ),
+                          color: Colors.red,
+                          child: const Icon(
+                            Icons.delete_outline,
+                            color: Colors.white,
+                          ),
+                        ),
+                        onDismissed: (_) {
+                          _deleteNotification(
+                            notification,
+                          );
+                        },
                         child: ListTile(
                           leading: CircleAvatar(
                             child: Icon(
-                              _getNotificationIcon(
-                                type,
-                              ),
+                              _notificationIcon(type),
                             ),
                           ),
-
                           title: Text(
                             title,
                             style: TextStyle(
@@ -323,47 +391,35 @@ class _NotificationScreenState extends State<NotificationScreen> {
                                   : FontWeight.normal,
                             ),
                           ),
-
                           subtitle: Column(
                             crossAxisAlignment:
-                                CrossAxisAlignment
-                                    .start,
-
+                                CrossAxisAlignment.start,
                             children: [
-                              if (body.isNotEmpty)
-                                Padding(
-                                  padding:
-                                      const EdgeInsets
-                                          .only(
-                                    top: 4,
-                                  ),
-
-                                  child: Text(
-                                    body,
+                              if (body.isNotEmpty) ...[
+                                const SizedBox(
+                                  height: 4,
+                                ),
+                                Text(
+                                  body,
+                                  maxLines: 2,
+                                  overflow:
+                                      TextOverflow.ellipsis,
+                                ),
+                              ],
+                              if (date.isNotEmpty) ...[
+                                const SizedBox(
+                                  height: 6,
+                                ),
+                                Text(
+                                  date,
+                                  style: const TextStyle(
+                                    fontSize: 11,
+                                    color: Colors.grey,
                                   ),
                                 ),
-
-                              if (date.isNotEmpty)
-                                Padding(
-                                  padding:
-                                      const EdgeInsets
-                                          .only(
-                                    top: 6,
-                                  ),
-
-                                  child: Text(
-                                    date,
-                                    style:
-                                        const TextStyle(
-                                      fontSize: 11,
-                                      color:
-                                          Colors.grey,
-                                    ),
-                                  ),
-                                ),
+                              ],
                             ],
                           ),
-
                           trailing: isUnread
                               ? Container(
                                   width: 10,
@@ -371,12 +427,10 @@ class _NotificationScreenState extends State<NotificationScreen> {
                                   decoration:
                                       const BoxDecoration(
                                     color: Colors.red,
-                                    shape:
-                                        BoxShape.circle,
+                                    shape: BoxShape.circle,
                                   ),
                                 )
                               : null,
-
                           onTap: () async {
                             if (isUnread) {
                               await _markAsRead(
@@ -391,4 +445,4 @@ class _NotificationScreenState extends State<NotificationScreen> {
       ),
     );
   }
-} 
+}
