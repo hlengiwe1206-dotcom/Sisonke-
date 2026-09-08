@@ -1,4 +1,4 @@
-import 'dart:typed_data';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
@@ -8,25 +8,22 @@ class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
 
   @override
-  State<ProfileScreen> createState() =>
-      _ProfileScreenState();
+  State<ProfileScreen> createState() => _ProfileScreenState();
 }
 
-class _ProfileScreenState
-    extends State<ProfileScreen> {
-  final supabase = Supabase.instance.client;
+class _ProfileScreenState extends State<ProfileScreen> {
+  final SupabaseClient supabase = Supabase.instance.client;
 
-  final ImagePicker imagePicker =
-      ImagePicker();
+  final TextEditingController nameController = TextEditingController();
 
-  final TextEditingController nameController =
-      TextEditingController();
-
-  String? avatarUrl;
+  final ImagePicker picker = ImagePicker();
 
   bool isLoading = true;
   bool isSaving = false;
-  bool isUploading = false;
+  bool isUploadingImage = false;
+
+  String? avatarUrl;
+  String? userEmail;
 
   @override
   void initState() {
@@ -34,21 +31,32 @@ class _ProfileScreenState
     loadProfile();
   }
 
+  @override
+  void dispose() {
+    nameController.dispose();
+    super.dispose();
+  }
+
   Future<void> loadProfile() async {
     try {
       final user = supabase.auth.currentUser;
 
       if (user == null) {
+        if (mounted) {
+          setState(() {
+            isLoading = false;
+          });
+        }
         return;
       }
+
+      userEmail = user.email;
 
       final data = await supabase
           .from('profiles')
           .select()
           .eq('id', user.id)
           .maybeSingle();
-
-      if (!mounted) return;
 
       if (data != null) {
         nameController.text =
@@ -58,142 +66,53 @@ class _ProfileScreenState
             data['avatar_url']?.toString();
       } else {
         nameController.text =
-            user.email?.split('@').first ?? '';
+            user.userMetadata?['full_name']?.toString() ??
+                '';
       }
-
-      setState(() {
-        isLoading = false;
-      });
-    } catch (error) {
-      debugPrint(
-        'Error loading profile: $error',
-      );
 
       if (mounted) {
         setState(() {
           isLoading = false;
         });
       }
-    }
-  }
-
-  Future<void> pickAndUploadImage() async {
-    try {
-      final user = supabase.auth.currentUser;
-
-      if (user == null) return;
-
-      final XFile? image =
-          await imagePicker.pickImage(
-        source: ImageSource.gallery,
-        imageQuality: 80,
-        maxWidth: 1200,
-      );
-
-      if (image == null) return;
-
-      setState(() {
-        isUploading = true;
-      });
-
-      final Uint8List imageBytes =
-          await image.readAsBytes();
-
-      final String fileExtension =
-          image.name.contains('.')
-              ? image.name.split('.').last
-              : 'jpg';
-
-      final String filePath =
-          '${user.id}/avatar_${DateTime.now().millisecondsSinceEpoch}.$fileExtension';
-
-      await supabase.storage
-          .from('profile-photos')
-          .uploadBinary(
-            filePath,
-            imageBytes,
-            fileOptions: FileOptions(
-              contentType:
-                  'image/$fileExtension',
-              upsert: true,
-            ),
-          );
-
-      final String publicUrl = supabase
-          .storage
-          .from('profile-photos')
-          .getPublicUrl(filePath);
-
-      await supabase
-          .from('profiles')
-          .upsert({
-            'id': user.id,
-            'full_name':
-                nameController.text.trim(),
-            'avatar_url': publicUrl,
-            'updated_at':
-                DateTime.now().toIso8601String(),
-          });
-
-      if (!mounted) return;
-
-      setState(() {
-        avatarUrl = publicUrl;
-        isUploading = false;
-      });
-
-      ScaffoldMessenger.of(context)
-          .showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Profile picture updated successfully',
-          ),
-        ),
-      );
     } catch (error) {
-      debugPrint(
-        'Error uploading profile image: $error',
-      );
+      debugPrint('Error loading profile: $error');
 
       if (mounted) {
         setState(() {
-          isUploading = false;
+          isLoading = false;
         });
 
-        ScaffoldMessenger.of(context)
-            .showSnackBar(
-          SnackBar(
-            content: Text(
-              'Failed to upload image: $error',
-            ),
-          ),
+        showMessage(
+          'Could not load your profile.',
+          isError: true,
         );
       }
     }
   }
 
   Future<void> saveProfile() async {
+    final user = supabase.auth.currentUser;
+
+    if (user == null) {
+      showMessage(
+        'You are not logged in.',
+        isError: true,
+      );
+      return;
+    }
+
+    final fullName = nameController.text.trim();
+
+    if (fullName.isEmpty) {
+      showMessage(
+        'Please enter your name.',
+        isError: true,
+      );
+      return;
+    }
+
     try {
-      final user = supabase.auth.currentUser;
-
-      if (user == null) return;
-
-      final name =
-          nameController.text.trim();
-
-      if (name.isEmpty) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Please enter your name',
-            ),
-          ),
-        );
-
-        return;
-      }
-
       setState(() {
         isSaving = true;
       });
@@ -201,62 +120,211 @@ class _ProfileScreenState
       await supabase
           .from('profiles')
           .upsert({
-            'id': user.id,
-            'full_name': name,
-            'avatar_url': avatarUrl,
-            'updated_at':
-                DateTime.now().toIso8601String(),
-          });
-
-      if (!mounted) return;
-
-      setState(() {
-        isSaving = false;
+        'id': user.id,
+        'full_name': fullName,
+        'avatar_url': avatarUrl,
+        'updated_at':
+            DateTime.now().toIso8601String(),
       });
 
-      ScaffoldMessenger.of(context)
-          .showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Profile updated successfully',
-          ),
+      await supabase.auth.updateUser(
+        UserAttributes(
+          data: {
+            'full_name': fullName,
+          },
         ),
       );
 
-      Navigator.pop(context);
-    } catch (error) {
-      debugPrint(
-        'Error saving profile: $error',
-      );
+      if (!mounted) return;
 
+      showMessage(
+        'Profile updated successfully.',
+      );
+    } catch (error) {
+      debugPrint('Error saving profile: $error');
+
+      if (!mounted) return;
+
+      showMessage(
+        'Could not save your profile.',
+        isError: true,
+      );
+    } finally {
       if (mounted) {
         setState(() {
           isSaving = false;
         });
-
-        ScaffoldMessenger.of(context)
-            .showSnackBar(
-          SnackBar(
-            content: Text(
-              'Failed to update profile: $error',
-            ),
-          ),
-        );
       }
     }
   }
 
-  @override
-  void dispose() {
-    nameController.dispose();
-    super.dispose();
+  Future<void> pickProfilePicture() async {
+    try {
+      final XFile? image = await picker.pickImage(
+        source: ImageSource.gallery,
+        imageQuality: 80,
+        maxWidth: 1000,
+      );
+
+      if (image == null) {
+        return;
+      }
+
+      await uploadProfilePicture(image);
+    } catch (error) {
+      debugPrint('Error picking image: $error');
+
+      if (!mounted) return;
+
+      showMessage(
+        'Could not select image.',
+        isError: true,
+      );
+    }
+  }
+
+  Future<void> uploadProfilePicture(
+    XFile image,
+  ) async {
+    final user = supabase.auth.currentUser;
+
+    if (user == null) {
+      showMessage(
+        'You are not logged in.',
+        isError: true,
+      );
+      return;
+    }
+
+    try {
+      setState(() {
+        isUploadingImage = true;
+      });
+
+      final file = File(image.path);
+
+      final fileExtension =
+          image.path.split('.').last.toLowerCase();
+
+      final fileName =
+          '${user.id}/profile.$fileExtension';
+
+      await supabase.storage
+          .from('profile-images')
+          .upload(
+            fileName,
+            file,
+            fileOptions: FileOptions(
+              upsert: true,
+              contentType:
+                  'image/$fileExtension',
+            ),
+          );
+
+      final publicUrl = supabase.storage
+          .from('profile-images')
+          .getPublicUrl(fileName);
+
+      avatarUrl = publicUrl;
+
+      await supabase
+          .from('profiles')
+          .upsert({
+        'id': user.id,
+        'full_name':
+            nameController.text.trim(),
+        'avatar_url': avatarUrl,
+        'updated_at':
+            DateTime.now().toIso8601String(),
+      });
+
+      if (!mounted) return;
+
+      setState(() {});
+
+      showMessage(
+        'Profile picture updated.',
+      );
+    } catch (error) {
+      debugPrint(
+        'Error uploading profile image: $error',
+      );
+
+      if (!mounted) return;
+
+      showMessage(
+        'Could not upload profile picture.',
+        isError: true,
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          isUploadingImage = false;
+        });
+      }
+    }
+  }
+
+  Future<void> logout() async {
+    try {
+      await supabase.auth.signOut();
+
+      if (!mounted) return;
+
+      Navigator.of(context).popUntil(
+        (route) => route.isFirst,
+      );
+    } catch (error) {
+      debugPrint('Logout error: $error');
+
+      if (!mounted) return;
+
+      showMessage(
+        'Could not log out.',
+        isError: true,
+      );
+    }
+  }
+
+  void showMessage(
+    String message, {
+    bool isError = false,
+  }) {
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(message),
+          backgroundColor:
+              isError ? Colors.red : Colors.green,
+        ),
+      );
+  }
+
+  String getInitials() {
+    final name = nameController.text.trim();
+
+    if (name.isEmpty) {
+      return 'S';
+    }
+
+    final parts = name.split(' ');
+
+    if (parts.length == 1) {
+      return parts.first
+          .substring(0, 1)
+          .toUpperCase();
+    }
+
+    return '${parts.first.substring(0, 1)}'
+        '${parts.last.substring(0, 1)}'
+        .toUpperCase();
   }
 
   @override
   Widget build(BuildContext context) {
-    final user =
-        supabase.auth.currentUser;
-
     return Scaffold(
       appBar: AppBar(
         title: const Text(
@@ -268,150 +336,223 @@ class _ProfileScreenState
               child:
                   CircularProgressIndicator(),
             )
-          : SingleChildScrollView(
-              padding:
-                  const EdgeInsets.all(24),
-              child: Column(
-                children: [
-                  GestureDetector(
-                    onTap: isUploading
-                        ? null
-                        : pickAndUploadImage,
-                    child: Stack(
-                      children: [
-                        CircleAvatar(
-                          radius: 65,
-                          backgroundImage:
-                              avatarUrl != null &&
-                                      avatarUrl!
-                                          .isNotEmpty
-                                  ? NetworkImage(
-                                      avatarUrl!,
-                                    )
-                                  : null,
-                          child: avatarUrl == null ||
-                                  avatarUrl!
-                                      .isEmpty
-                              ? const Icon(
-                                  Icons.person,
-                                  size: 65,
-                                )
-                              : null,
-                        ),
+          : SafeArea(
+              child: SingleChildScrollView(
+                padding:
+                    const EdgeInsets.all(24),
+                child: Column(
+                  crossAxisAlignment:
+                      CrossAxisAlignment.stretch,
+                  children: [
 
-                        Positioned(
-                          right: 0,
-                          bottom: 0,
-                          child: CircleAvatar(
-                            radius: 22,
-                            child: isUploading
+                    const SizedBox(height: 20),
+
+                    Center(
+                      child: Stack(
+                        children: [
+
+                          CircleAvatar(
+                            radius: 65,
+                            backgroundColor:
+                                Theme.of(context)
+                                    .colorScheme
+                                    .primaryContainer,
+                            backgroundImage:
+                                avatarUrl != null &&
+                                        avatarUrl!
+                                            .isNotEmpty
+                                    ? NetworkImage(
+                                        avatarUrl!,
+                                      )
+                                    : null,
+                            child:
+                                avatarUrl == null ||
+                                        avatarUrl!
+                                            .isEmpty
+                                    ? Text(
+                                        getInitials(),
+                                        style:
+                                            const TextStyle(
+                                          fontSize: 38,
+                                          fontWeight:
+                                              FontWeight.bold,
+                                        ),
+                                      )
+                                    : null,
+                          ),
+
+                          Positioned(
+                            right: 0,
+                            bottom: 0,
+                            child: InkWell(
+                              onTap:
+                                  isUploadingImage
+                                      ? null
+                                      : pickProfilePicture,
+                              borderRadius:
+                                  BorderRadius.circular(
+                                30,
+                              ),
+                              child: Container(
+                                width: 46,
+                                height: 46,
+                                decoration:
+                                    BoxDecoration(
+                                  color:
+                                      Theme.of(context)
+                                          .colorScheme
+                                          .primary,
+                                  shape:
+                                      BoxShape.circle,
+                                  border:
+                                      Border.all(
+                                    color: Colors.white,
+                                    width: 3,
+                                  ),
+                                ),
+                                child:
+                                    isUploadingImage
+                                        ? const Padding(
+                                            padding:
+                                                EdgeInsets.all(
+                                              12,
+                                            ),
+                                            child:
+                                                CircularProgressIndicator(
+                                              strokeWidth:
+                                                  2,
+                                              color:
+                                                  Colors.white,
+                                            ),
+                                          )
+                                        : const Icon(
+                                            Icons.camera_alt,
+                                            color:
+                                                Colors.white,
+                                          ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+
+                    const SizedBox(height: 20),
+
+                    Center(
+                      child: Text(
+                        'Profile Picture',
+                        style:
+                            Theme.of(context)
+                                .textTheme
+                                .titleMedium,
+                      ),
+                    ),
+
+                    const SizedBox(height: 6),
+
+                    Center(
+                      child: Text(
+                        'This picture will be visible to other Sisonke users.',
+                        textAlign: TextAlign.center,
+                        style:
+                            Theme.of(context)
+                                .textTheme
+                                .bodySmall,
+                      ),
+                    ),
+
+                    const SizedBox(height: 40),
+
+                    TextField(
+                      controller: nameController,
+                      textCapitalization:
+                          TextCapitalization.words,
+                      onChanged: (_) {
+                        setState(() {});
+                      },
+                      decoration:
+                          const InputDecoration(
+                        labelText:
+                            'Your Full Name',
+                        hintText:
+                            'Enter your full name',
+                        prefixIcon:
+                            Icon(Icons.person),
+                        border:
+                            OutlineInputBorder(),
+                      ),
+                    ),
+
+                    const SizedBox(height: 20),
+
+                    TextField(
+                      controller:
+                          TextEditingController(
+                        text: userEmail ?? '',
+                      ),
+                      enabled: false,
+                      decoration:
+                          const InputDecoration(
+                        labelText: 'Email',
+                        prefixIcon:
+                            Icon(Icons.email),
+                        border:
+                            OutlineInputBorder(),
+                      ),
+                    ),
+
+                    const SizedBox(height: 30),
+
+                    SizedBox(
+                      height: 54,
+                      child: ElevatedButton(
+                        onPressed:
+                            isSaving
+                                ? null
+                                : saveProfile,
+                        child:
+                            isSaving
                                 ? const SizedBox(
-                                    width: 20,
-                                    height: 20,
+                                    width: 24,
+                                    height: 24,
                                     child:
                                         CircularProgressIndicator(
-                                      strokeWidth:
-                                          2,
+                                      strokeWidth: 2,
                                     ),
                                   )
-                                : const Icon(
-                                    Icons.camera_alt,
+                                : const Text(
+                                    'Save Profile',
+                                    style:
+                                        TextStyle(
+                                      fontSize: 16,
+                                      fontWeight:
+                                          FontWeight.bold,
+                                    ),
                                   ),
-                          ),
+                      ),
+                    ),
+
+                    const SizedBox(height: 16),
+
+                    SizedBox(
+                      height: 54,
+                      child: OutlinedButton.icon(
+                        onPressed: logout,
+                        icon:
+                            const Icon(Icons.logout),
+                        label:
+                            const Text(
+                          'Log Out',
                         ),
-                      ],
+                      ),
                     ),
-                  ),
 
-                  const SizedBox(height: 15),
-
-                  TextButton.icon(
-                    onPressed: isUploading
-                        ? null
-                        : pickAndUploadImage,
-                    icon: const Icon(
-                      Icons.photo_library,
-                    ),
-                    label: const Text(
-                      'Upload Profile Picture',
-                    ),
-                  ),
-
-                  const SizedBox(height: 30),
-
-                  TextField(
-                    controller: nameController,
-                    textCapitalization:
-                        TextCapitalization.words,
-                    decoration:
-                        const InputDecoration(
-                      labelText:
-                          'Display Name',
-                      hintText:
-                          'Enter your full name',
-                      prefixIcon:
-                          Icon(Icons.person_outline),
-                      border:
-                          OutlineInputBorder(),
-                    ),
-                  ),
-
-                  const SizedBox(height: 20),
-
-                  TextField(
-                    readOnly: true,
-                    controller:
-                        TextEditingController(
-                      text: user?.email ?? '',
-                    ),
-                    decoration:
-                        const InputDecoration(
-                      labelText: 'Email',
-                      prefixIcon:
-                          Icon(Icons.email_outlined),
-                      border:
-                          OutlineInputBorder(),
-                    ),
-                  ),
-
-                  const SizedBox(height: 35),
-
-                  SizedBox(
-                    width: double.infinity,
-                    height: 52,
-                    child: ElevatedButton(
-                      onPressed:
-                          isSaving
-                              ? null
-                              : saveProfile,
-                      child: isSaving
-                          ? const SizedBox(
-                              width: 24,
-                              height: 24,
-                              child:
-                                  CircularProgressIndicator(
-                                strokeWidth: 2,
-                              ),
-                            )
-                          : const Text(
-                              'Save Profile',
-                            ),
-                    ),
-                  ),
-
-                  const SizedBox(height: 20),
-
-                  const Text(
-                    'Your display name and profile picture can be used to identify you to other Sisonke users.',
-                    textAlign:
-                        TextAlign.center,
-                    style: TextStyle(
-                      fontSize: 13,
-                    ),
-                  ),
-                ],
+                    const SizedBox(height: 30),
+                  ],
+                ),
               ),
             ),
     );
   }
-}
+} 
