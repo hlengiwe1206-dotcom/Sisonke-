@@ -12,8 +12,7 @@ class MyHelpActivityScreen extends StatefulWidget {
 class _MyHelpActivityScreenState
     extends State<MyHelpActivityScreen>
     with SingleTickerProviderStateMixin {
-  final SupabaseClient _supabase =
-      Supabase.instance.client;
+  final SupabaseClient _supabase = Supabase.instance.client;
 
   late TabController _tabController;
 
@@ -22,6 +21,8 @@ class _MyHelpActivityScreenState
 
   List<Map<String, dynamic>> _responsesToMyRequests = [];
   List<Map<String, dynamic>> _myResponses = [];
+
+  final Set<String> _processingResponseIds = {};
 
   RealtimeChannel? _responsesChannel;
   RealtimeChannel? _requestsChannel;
@@ -40,7 +41,7 @@ class _MyHelpActivityScreenState
   }
 
   // ============================================================
-  // LOAD EVERYTHING
+  // LOAD ALL ACTIVITY
   // ============================================================
 
   Future<void> _loadAllActivity() async {
@@ -63,9 +64,7 @@ class _MyHelpActivityScreenState
         _isLoading = false;
       });
     } catch (error) {
-      debugPrint(
-        'Error loading help activity: $error',
-      );
+      debugPrint('Error loading help activity: $error');
 
       if (!mounted) return;
 
@@ -77,9 +76,7 @@ class _MyHelpActivityScreenState
   }
 
   // ============================================================
-  // TAB 1
-  //
-  // RESPONSES TO MY HELP REQUESTS
+  // LOAD RESPONSES TO MY REQUESTS
   // ============================================================
 
   Future<void> _loadResponsesToMyRequests() async {
@@ -90,41 +87,26 @@ class _MyHelpActivityScreenState
       return;
     }
 
-    // ----------------------------------------------------------
-    // LOAD MY HELP REQUESTS
-    // ----------------------------------------------------------
-
-    final List<dynamic> requestData =
-        await _supabase
-            .from('help_requests')
-            .select()
-            .eq('user_id', user.id)
-            .order(
-              'created_at',
-              ascending: false,
-            );
+    final requestData = await _supabase
+        .from('help_requests')
+        .select()
+        .eq('user_id', user.id)
+        .order(
+          'created_at',
+          ascending: false,
+        );
 
     final List<Map<String, dynamic>> myRequests =
-        requestData
-            .map(
-              (item) =>
-                  Map<String, dynamic>.from(item),
-            )
-            .toList();
+        List<Map<String, dynamic>>.from(requestData);
 
     if (myRequests.isEmpty) {
       _responsesToMyRequests = [];
       return;
     }
 
-    final List<String> requestIds = myRequests
-        .map(
-          (request) =>
-              _safeText(request['id']),
-        )
-        .where(
-          (id) => id.isNotEmpty,
-        )
+    final requestIds = myRequests
+        .map((request) => _safeText(request['id']))
+        .where((id) => id.isNotEmpty)
         .toList();
 
     if (requestIds.isEmpty) {
@@ -132,149 +114,97 @@ class _MyHelpActivityScreenState
       return;
     }
 
-    // ----------------------------------------------------------
-    // CREATE REQUEST LOOKUP
-    // ----------------------------------------------------------
-
-    final Map<String, Map<String, dynamic>>
-        requestsById = {};
+    final Map<String, Map<String, dynamic>> requestsById = {};
 
     for (final request in myRequests) {
-      final String requestId =
-          _safeText(request['id']);
+      final requestId = _safeText(request['id']);
 
       if (requestId.isNotEmpty) {
         requestsById[requestId] = request;
       }
     }
 
-    // ----------------------------------------------------------
-    // LOAD RESPONSES TO MY REQUESTS
-    // ----------------------------------------------------------
-
-    final List<dynamic> responseData =
-        await _supabase
-            .from('help_responses')
-            .select()
-            .inFilter(
-              'request_id',
-              requestIds,
-            )
-            .order(
-              'created_at',
-              ascending: false,
-            );
+    final responseData = await _supabase
+        .from('help_responses')
+        .select()
+        .inFilter(
+          'request_id',
+          requestIds,
+        )
+        .order(
+          'created_at',
+          ascending: false,
+        );
 
     final List<Map<String, dynamic>> responses =
-        responseData
-            .map(
-              (item) =>
-                  Map<String, dynamic>.from(item),
-            )
-            .toList();
+        List<Map<String, dynamic>>.from(responseData);
 
     if (responses.isEmpty) {
       _responsesToMyRequests = [];
       return;
     }
 
-    // ----------------------------------------------------------
-    // COLLECT RESPONDER IDS
-    // ----------------------------------------------------------
+    final responderIds = responses
+        .map(
+          (response) =>
+              _safeText(response['responder_id']),
+        )
+        .where((id) => id.isNotEmpty)
+        .toSet()
+        .toList();
 
-    final List<String> responderIds =
-        responses
-            .map(
-              (response) =>
-                  _safeText(
-                response['responder_id'],
-              ),
-            )
-            .where(
-              (id) => id.isNotEmpty,
-            )
-            .toSet()
-            .toList();
-
-    // ----------------------------------------------------------
-    // LOAD RESPONDER PROFILES
-    // ----------------------------------------------------------
-
-    final Map<String, Map<String, dynamic>>
-        profilesById = {};
+    final Map<String, Map<String, dynamic>> profilesById = {};
 
     if (responderIds.isNotEmpty) {
-      final List<dynamic> profileData =
-          await _supabase
-              .from('profiles')
-              .select(
-                'id, full_name, avatar_url',
-              )
-              .inFilter(
-                'id',
-                responderIds,
-              );
+      final profileData = await _supabase
+          .from('profiles')
+          .select(
+            'id, full_name, avatar_url',
+          )
+          .inFilter(
+            'id',
+            responderIds,
+          );
 
       for (final profile in profileData) {
-        final Map<String, dynamic> profileMap =
+        final profileMap =
             Map<String, dynamic>.from(profile);
 
-        final String profileId =
+        final profileId =
             _safeText(profileMap['id']);
 
         if (profileId.isNotEmpty) {
-          profilesById[profileId] =
-              profileMap;
+          profilesById[profileId] = profileMap;
         }
       }
     }
 
-    // ----------------------------------------------------------
-    // COMBINE RESPONSE + REQUEST + RESPONDER PROFILE
-    // ----------------------------------------------------------
-
-    final List<Map<String, dynamic>> combined =
-        [];
+    final List<Map<String, dynamic>> combined = [];
 
     for (final response in responses) {
-      final String requestId =
-          _safeText(
-        response['request_id'],
-      );
+      final requestId =
+          _safeText(response['request_id']);
 
-      final String responderId =
-          _safeText(
-        response['responder_id'],
-      );
+      final responderId =
+          _safeText(response['responder_id']);
 
-      final request =
-          requestsById[requestId];
-
-      final profile =
-          profilesById[responderId];
+      final request = requestsById[requestId];
+      final profile = profilesById[responderId];
 
       combined.add({
         ...response,
-
-        'request_title':
-            _safeText(
+        'request_title': _safeText(
           request?['title'],
           'Help Request',
         ),
-
-        'request_description':
-            _safeText(
+        'request_description': _safeText(
           request?['description'],
         ),
-
-        'responder_name':
-            _safeText(
+        'responder_name': _safeText(
           profile?['full_name'],
           'Sisonke Member',
         ),
-
-        'responder_avatar_url':
-            _safeText(
+        'responder_avatar_url': _safeText(
           profile?['avatar_url'],
         ),
       });
@@ -284,9 +214,7 @@ class _MyHelpActivityScreenState
   }
 
   // ============================================================
-  // TAB 2
-  //
-  // MY RESPONSES TO OTHER PEOPLE'S REQUESTS
+  // LOAD MY RESPONSES
   // ============================================================
 
   Future<void> _loadMyResponses() async {
@@ -297,85 +225,59 @@ class _MyHelpActivityScreenState
       return;
     }
 
-    // ----------------------------------------------------------
-    // LOAD MY RESPONSES
-    // ----------------------------------------------------------
-
-    final List<dynamic> responseData =
-        await _supabase
-            .from('help_responses')
-            .select()
-            .eq(
-              'responder_id',
-              user.id,
-            )
-            .order(
-              'created_at',
-              ascending: false,
-            );
+    final responseData = await _supabase
+        .from('help_responses')
+        .select()
+        .eq(
+          'responder_id',
+          user.id,
+        )
+        .order(
+          'created_at',
+          ascending: false,
+        );
 
     final List<Map<String, dynamic>> responses =
-        responseData
-            .map(
-              (item) =>
-                  Map<String, dynamic>.from(item),
-            )
-            .toList();
+        List<Map<String, dynamic>>.from(responseData);
 
     if (responses.isEmpty) {
       _myResponses = [];
       return;
     }
 
-    // ----------------------------------------------------------
-    // COLLECT REQUEST IDS
-    // ----------------------------------------------------------
-
-    final List<String> requestIds =
-        responses
-            .map(
-              (response) =>
-                  _safeText(
-                response['request_id'],
-              ),
-            )
-            .where(
-              (id) => id.isNotEmpty,
-            )
-            .toSet()
-            .toList();
+    final requestIds = responses
+        .map(
+          (response) =>
+              _safeText(response['request_id']),
+        )
+        .where((id) => id.isNotEmpty)
+        .toSet()
+        .toList();
 
     if (requestIds.isEmpty) {
       _myResponses = [];
       return;
     }
 
-    // ----------------------------------------------------------
-    // LOAD HELP REQUESTS
-    // ----------------------------------------------------------
+    final requestData = await _supabase
+        .from('help_requests')
+        .select()
+        .inFilter(
+          'id',
+          requestIds,
+        );
 
-    final List<dynamic> requestData =
-        await _supabase
-            .from('help_requests')
-            .select()
-            .inFilter(
-              'id',
-              requestIds,
-            );
-
-    final Map<String, Map<String, dynamic>>
-        requestsById = {};
-
+    final Map<String, Map<String, dynamic>> requestsById = {};
     final Set<String> requestOwnerIds = {};
 
     for (final item in requestData) {
-      final Map<String, dynamic> request =
+      final request =
           Map<String, dynamic>.from(item);
 
-      final String requestId =
+      final requestId =
           _safeText(request['id']);
 
-      final String ownerId =
+      final ownerId =
           _safeText(request['user_id']);
 
       if (requestId.isNotEmpty) {
@@ -387,85 +289,61 @@ class _MyHelpActivityScreenState
       }
     }
 
-    // ----------------------------------------------------------
-    // LOAD REQUEST OWNER PROFILES
-    // ----------------------------------------------------------
-
-    final Map<String, Map<String, dynamic>>
-        profilesById = {};
+    final Map<String, Map<String, dynamic>> profilesById = {};
 
     if (requestOwnerIds.isNotEmpty) {
-      final List<dynamic> profileData =
-          await _supabase
-              .from('profiles')
-              .select(
-                'id, full_name, avatar_url',
-              )
-              .inFilter(
-                'id',
-                requestOwnerIds.toList(),
-              );
+      final profileData = await _supabase
+          .from('profiles')
+          .select(
+            'id, full_name, avatar_url',
+          )
+          .inFilter(
+            'id',
+            requestOwnerIds.toList(),
+          );
 
       for (final profile in profileData) {
-        final Map<String, dynamic> profileMap =
+        final profileMap =
             Map<String, dynamic>.from(profile);
 
-        final String profileId =
+        final profileId =
             _safeText(profileMap['id']);
 
         if (profileId.isNotEmpty) {
-          profilesById[profileId] =
-              profileMap;
+          profilesById[profileId] = profileMap;
         }
       }
     }
 
-    // ----------------------------------------------------------
-    // COMBINE RESPONSE + REQUEST + REQUEST OWNER PROFILE
-    // ----------------------------------------------------------
-
-    final List<Map<String, dynamic>> combined =
-        [];
+    final List<Map<String, dynamic>> combined = [];
 
     for (final response in responses) {
-      final String requestId =
-          _safeText(
-        response['request_id'],
-      );
+      final requestId =
+          _safeText(response['request_id']);
 
       final request =
           requestsById[requestId];
 
-      final String ownerId =
-          _safeText(
-        request?['user_id'],
-      );
+      final ownerId =
+          _safeText(request?['user_id']);
 
       final profile =
           profilesById[ownerId];
 
       combined.add({
         ...response,
-
-        'request_title':
-            _safeText(
+        'request_title': _safeText(
           request?['title'],
           'Help Request',
         ),
-
-        'request_description':
-            _safeText(
+        'request_description': _safeText(
           request?['description'],
         ),
-
-        'request_owner_name':
-            _safeText(
+        'request_owner_name': _safeText(
           profile?['full_name'],
           'Sisonke Member',
         ),
-
-        'request_owner_avatar_url':
-            _safeText(
+        'request_owner_avatar_url': _safeText(
           profile?['avatar_url'],
         ),
       });
@@ -475,7 +353,206 @@ class _MyHelpActivityScreenState
   }
 
   // ============================================================
-  // REALTIME LISTENERS
+  // UPDATE RESPONSE STATUS
+  // ============================================================
+
+  Future<void> _updateResponseStatus({
+    required Map<String, dynamic> response,
+    required String newStatus,
+  }) async {
+    final responseId =
+        _safeText(response['id']);
+
+    final responderId =
+        _safeText(response['responder_id']);
+
+    final requestTitle =
+        _safeText(
+      response['request_title'],
+      'your help request',
+    );
+
+    if (responseId.isEmpty) {
+      _showError('Unable to identify this response.');
+      return;
+    }
+
+    if (responderId.isEmpty) {
+      _showError('Unable to identify the responder.');
+      return;
+    }
+
+    setState(() {
+      _processingResponseIds.add(responseId);
+    });
+
+    try {
+      // Update the response.
+      await _supabase
+          .from('help_responses')
+          .update({
+            'status': newStatus,
+          })
+          .eq('id', responseId);
+
+      // Create notification for responder.
+      try {
+        final title = newStatus == 'accepted'
+            ? 'Your help response was accepted'
+            : 'Your help response was declined';
+
+        final body = newStatus == 'accepted'
+            ? 'Your offer to help with "$requestTitle" has been accepted.'
+            : 'Your response to "$requestTitle" was declined.';
+
+        await _supabase
+            .from('notifications')
+            .insert({
+          'user_id': responderId,
+          'title': title,
+          'body': body,
+          'is_read': false,
+        });
+      } catch (notificationError) {
+        debugPrint(
+          'Notification error: $notificationError',
+        );
+      }
+
+      // Update local data immediately.
+      if (mounted) {
+        setState(() {
+          final index =
+              _responsesToMyRequests.indexWhere(
+            (item) =>
+                _safeText(item['id']) ==
+                responseId,
+          );
+
+          if (index != -1) {
+            _responsesToMyRequests[index]['status'] =
+                newStatus;
+          }
+
+          _processingResponseIds.remove(responseId);
+        });
+      }
+
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: newStatus == 'accepted'
+              ? Colors.green
+              : Colors.red,
+          content: Text(
+            newStatus == 'accepted'
+                ? 'Response accepted successfully.'
+                : 'Response declined.',
+          ),
+        ),
+      );
+
+      await _loadAllActivity();
+    } catch (error) {
+      debugPrint(
+        'Error updating response: $error',
+      );
+
+      if (mounted) {
+        setState(() {
+          _processingResponseIds.remove(responseId);
+        });
+      }
+
+      _showError(
+        'Unable to update response:\n$error',
+      );
+    }
+  }
+
+  // ============================================================
+  // CONFIRM STATUS CHANGE
+  // ============================================================
+
+  Future<void> _confirmStatusChange({
+    required Map<String, dynamic> response,
+    required String newStatus,
+  }) async {
+    final responderName =
+        _safeText(
+      response['responder_name'],
+      'this responder',
+    );
+
+    final isAccept =
+        newStatus == 'accepted';
+
+    final confirmed =
+        await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: Text(
+            isAccept
+                ? 'Accept Response?'
+                : 'Decline Response?',
+          ),
+          content: Text(
+            isAccept
+                ? 'Are you sure you want to accept $responderName\'s offer to help?'
+                : 'Are you sure you want to decline $responderName\'s response?',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.pop(
+                  context,
+                  false,
+                );
+              },
+              child: const Text(
+                'Cancel',
+              ),
+            ),
+            ElevatedButton(
+              style:
+                  ElevatedButton.styleFrom(
+                backgroundColor: isAccept
+                    ? Colors.green
+                    : Colors.red,
+                foregroundColor:
+                    Colors.white,
+              ),
+              onPressed: () {
+                Navigator.pop(
+                  context,
+                  true,
+                );
+              },
+              child: Text(
+                isAccept
+                    ? 'Accept'
+                    : 'Decline',
+              ),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirmed != true) {
+      return;
+    }
+
+    await _updateResponseStatus(
+      response: response,
+      newStatus: newStatus,
+    );
+  }
+
+  // ============================================================
+  // REALTIME
   // ============================================================
 
   void _listenForChanges() {
@@ -525,7 +602,7 @@ class _MyHelpActivityScreenState
       return fallback;
     }
 
-    final String text =
+    final text =
         value.toString().trim();
 
     if (text.isEmpty ||
@@ -540,9 +617,7 @@ class _MyHelpActivityScreenState
   // FORMAT DATE
   // ============================================================
 
-  String _formatDate(
-    dynamic value,
-  ) {
+  String _formatDate(dynamic value) {
     if (value == null) {
       return 'Recently';
     }
@@ -555,9 +630,8 @@ class _MyHelpActivityScreenState
                   value.toString(),
                 );
 
-      final Duration difference =
-          DateTime.now()
-              .difference(date);
+      final difference =
+          DateTime.now().difference(date);
 
       if (difference.inMinutes < 1) {
         return 'Just now';
@@ -624,6 +698,23 @@ class _MyHelpActivityScreenState
   }
 
   // ============================================================
+  // ERROR
+  // ============================================================
+
+  void _showError(String message) {
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: Colors.red,
+        duration:
+            const Duration(seconds: 5),
+      ),
+    );
+  }
+
+  // ============================================================
   // DISPOSE
   // ============================================================
 
@@ -657,13 +748,11 @@ class _MyHelpActivityScreenState
     return Scaffold(
       backgroundColor:
           const Color(0xFFF6F7FB),
-
       appBar: AppBar(
         elevation: 0,
         backgroundColor: Colors.white,
         foregroundColor:
             const Color(0xFF1F2937),
-
         title: const Text(
           'My Help Activity',
           style: TextStyle(
@@ -671,7 +760,6 @@ class _MyHelpActivityScreenState
                 FontWeight.bold,
           ),
         ),
-
         actions: [
           IconButton(
             tooltip: 'Refresh',
@@ -680,19 +768,14 @@ class _MyHelpActivityScreenState
             onPressed: _refresh,
           ),
         ],
-
         bottom: TabBar(
           controller: _tabController,
-
           labelColor:
               const Color(0xFFFFB300),
-
           unselectedLabelColor:
               const Color(0xFF6B7280),
-
           indicatorColor:
               const Color(0xFFFFB300),
-
           tabs: const [
             Tab(
               icon: Icon(
@@ -709,7 +792,6 @@ class _MyHelpActivityScreenState
           ],
         ),
       ),
-
       body: _isLoading
           ? const Center(
               child:
@@ -720,7 +802,6 @@ class _MyHelpActivityScreenState
               : TabBarView(
                   controller:
                       _tabController,
-
                   children: [
                     _buildReceivedTab(),
                     _buildMyResponsesTab(),
@@ -747,25 +828,17 @@ class _MyHelpActivityScreenState
 
     return RefreshIndicator(
       onRefresh: _refresh,
-
       child: ListView.builder(
         physics:
             const AlwaysScrollableScrollPhysics(),
-
         padding:
             const EdgeInsets.all(16),
-
         itemCount:
             _responsesToMyRequests.length,
-
         itemBuilder:
             (context, index) {
-          final response =
-              _responsesToMyRequests[
-                  index];
-
           return _buildReceivedResponseCard(
-            response,
+            _responsesToMyRequests[index],
           );
         },
       ),
@@ -790,24 +863,17 @@ class _MyHelpActivityScreenState
 
     return RefreshIndicator(
       onRefresh: _refresh,
-
       child: ListView.builder(
         physics:
             const AlwaysScrollableScrollPhysics(),
-
         padding:
             const EdgeInsets.all(16),
-
         itemCount:
             _myResponses.length,
-
         itemBuilder:
             (context, index) {
-          final response =
-              _myResponses[index];
-
           return _buildMyResponseCard(
-            response,
+            _myResponses[index],
           );
         },
       ),
@@ -821,116 +887,107 @@ class _MyHelpActivityScreenState
   Widget _buildReceivedResponseCard(
     Map<String, dynamic> response,
   ) {
-    final String responderName =
-        _safeText(
+    final responderName = _safeText(
       response['responder_name'],
       'Sisonke Member',
     );
 
-    final String avatarUrl =
-        _safeText(
-      response[
-          'responder_avatar_url'],
+    final avatarUrl = _safeText(
+      response['responder_avatar_url'],
     );
 
-    final String requestTitle =
-        _safeText(
+    final requestTitle = _safeText(
       response['request_title'],
       'Help Request',
     );
 
-    final String message =
-        _safeText(
+    final message = _safeText(
       response['message'],
       'No message provided.',
     );
 
-    final String availability =
-        _safeText(
+    final availability = _safeText(
       response['availability'],
       'Not specified',
     );
 
-    final String contactMethod =
-        _safeText(
+    final contactMethod = _safeText(
       response['contact_method'],
       'Not specified',
     );
 
-    final String status =
-        _safeText(
+    final status = _safeText(
       response['status'],
       'pending',
     );
+
+    final responseId =
+        _safeText(response['id']);
+
+    final isProcessing =
+        _processingResponseIds.contains(
+      responseId,
+    );
+
+    final isPending =
+        status.toLowerCase() == 'pending';
 
     return Padding(
       padding:
           const EdgeInsets.only(
         bottom: 14,
       ),
-
       child: Container(
         padding:
             const EdgeInsets.all(18),
-
         decoration: BoxDecoration(
           color: Colors.white,
-
           borderRadius:
-              BorderRadius.circular(
-            20,
-          ),
-
+              BorderRadius.circular(20),
           boxShadow: [
             BoxShadow(
               color:
-                  Colors.black.withAlpha(
-                10,
-              ),
-
+                  Colors.black.withAlpha(10),
               blurRadius: 12,
-
               offset:
                   const Offset(0, 4),
             ),
           ],
         ),
-
         child: Column(
           crossAxisAlignment:
               CrossAxisAlignment.start,
-
           children: [
-            Text(
-              requestTitle,
-
-              style: const TextStyle(
-                fontSize: 17,
-                fontWeight:
-                    FontWeight.bold,
-              ),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    requestTitle,
+                    style:
+                        const TextStyle(
+                      fontSize: 17,
+                      fontWeight:
+                          FontWeight.bold,
+                    ),
+                  ),
+                ),
+                _buildStatusChip(status),
+              ],
             ),
 
             const SizedBox(height: 16),
 
             Row(
               children: [
-                _buildAvatar(
-                  avatarUrl,
-                ),
-
+                _buildAvatar(avatarUrl),
                 const SizedBox(width: 12),
-
                 Expanded(
                   child: Column(
                     crossAxisAlignment:
-                        CrossAxisAlignment
-                            .start,
-
+                        CrossAxisAlignment.start,
                     children: [
                       Text(
                         responderName,
-
                         style:
                             const TextStyle(
                           fontWeight:
@@ -938,32 +995,20 @@ class _MyHelpActivityScreenState
                           fontSize: 15,
                         ),
                       ),
-
-                      const SizedBox(
-                        height: 3,
-                      ),
-
+                      const SizedBox(height: 3),
                       Text(
                         _formatDate(
-                          response[
-                              'created_at'],
+                          response['created_at'],
                         ),
-
                         style:
                             const TextStyle(
                           fontSize: 12,
                           color:
-                              Color(
-                            0xFF6B7280,
-                          ),
+                              Color(0xFF6B7280),
                         ),
                       ),
                     ],
                   ),
-                ),
-
-                _buildStatusChip(
-                  status,
                 ),
               ],
             ),
@@ -972,7 +1017,6 @@ class _MyHelpActivityScreenState
 
             Text(
               message,
-
               style: TextStyle(
                 fontSize: 14,
                 height: 1.4,
@@ -1000,6 +1044,103 @@ class _MyHelpActivityScreenState
               'Contact',
               contactMethod,
             ),
+
+            // ================================================
+            // ACCEPT / DECLINE BUTTONS
+            // ================================================
+
+            if (isPending) ...[
+              const SizedBox(height: 20),
+
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: isProcessing
+                          ? null
+                          : () {
+                              _confirmStatusChange(
+                                response:
+                                    response,
+                                newStatus:
+                                    'declined',
+                              );
+                            },
+                      icon:
+                          const Icon(
+                        Icons.close,
+                      ),
+                      label:
+                          const Text(
+                        'Decline',
+                      ),
+                      style:
+                          OutlinedButton.styleFrom(
+                        foregroundColor:
+                            Colors.red,
+                        side:
+                            const BorderSide(
+                          color:
+                              Colors.red,
+                        ),
+                        padding:
+                            const EdgeInsets.symmetric(
+                          vertical: 13,
+                        ),
+                      ),
+                    ),
+                  ),
+
+                  const SizedBox(width: 12),
+
+                  Expanded(
+                    child: ElevatedButton.icon(
+                      onPressed: isProcessing
+                          ? null
+                          : () {
+                              _confirmStatusChange(
+                                response:
+                                    response,
+                                newStatus:
+                                    'accepted',
+                              );
+                            },
+                      icon: isProcessing
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child:
+                                  CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color:
+                                    Colors.white,
+                              ),
+                            )
+                          : const Icon(
+                              Icons.check,
+                            ),
+                      label:
+                          Text(
+                        isProcessing
+                            ? 'Processing'
+                            : 'Accept',
+                      ),
+                      style:
+                          ElevatedButton.styleFrom(
+                        backgroundColor:
+                            Colors.green,
+                        foregroundColor:
+                            Colors.white,
+                        padding:
+                            const EdgeInsets.symmetric(
+                          vertical: 13,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
           ],
         ),
       ),
@@ -1013,45 +1154,37 @@ class _MyHelpActivityScreenState
   Widget _buildMyResponseCard(
     Map<String, dynamic> response,
   ) {
-    final String ownerName =
-        _safeText(
-      response[
-          'request_owner_name'],
+    final ownerName = _safeText(
+      response['request_owner_name'],
       'Sisonke Member',
     );
 
-    final String avatarUrl =
-        _safeText(
+    final avatarUrl = _safeText(
       response[
           'request_owner_avatar_url'],
     );
 
-    final String requestTitle =
-        _safeText(
+    final requestTitle = _safeText(
       response['request_title'],
       'Help Request',
     );
 
-    final String message =
-        _safeText(
+    final message = _safeText(
       response['message'],
       'No message provided.',
     );
 
-    final String availability =
-        _safeText(
+    final availability = _safeText(
       response['availability'],
       'Not specified',
     );
 
-    final String contactMethod =
-        _safeText(
+    final contactMethod = _safeText(
       response['contact_method'],
       'Not specified',
     );
 
-    final String status =
-        _safeText(
+    final status = _safeText(
       response['status'],
       'pending',
     );
@@ -1061,45 +1194,32 @@ class _MyHelpActivityScreenState
           const EdgeInsets.only(
         bottom: 14,
       ),
-
       child: Container(
         padding:
             const EdgeInsets.all(18),
-
         decoration: BoxDecoration(
           color: Colors.white,
-
           borderRadius:
-              BorderRadius.circular(
-            20,
-          ),
-
+              BorderRadius.circular(20),
           boxShadow: [
             BoxShadow(
               color:
-                  Colors.black.withAlpha(
-                10,
-              ),
-
+                  Colors.black.withAlpha(10),
               blurRadius: 12,
-
               offset:
                   const Offset(0, 4),
             ),
           ],
         ),
-
         child: Column(
           crossAxisAlignment:
               CrossAxisAlignment.start,
-
           children: [
             Row(
               children: [
                 Expanded(
                   child: Text(
                     requestTitle,
-
                     style:
                         const TextStyle(
                       fontSize: 17,
@@ -1108,10 +1228,7 @@ class _MyHelpActivityScreenState
                     ),
                   ),
                 ),
-
-                _buildStatusChip(
-                  status,
-                ),
+                _buildStatusChip(status),
               ],
             ),
 
@@ -1119,22 +1236,15 @@ class _MyHelpActivityScreenState
 
             Row(
               children: [
-                _buildAvatar(
-                  avatarUrl,
-                ),
-
+                _buildAvatar(avatarUrl),
                 const SizedBox(width: 12),
-
                 Expanded(
                   child: Column(
                     crossAxisAlignment:
-                        CrossAxisAlignment
-                            .start,
-
+                        CrossAxisAlignment.start,
                     children: [
                       Text(
                         ownerName,
-
                         style:
                             const TextStyle(
                           fontWeight:
@@ -1142,21 +1252,13 @@ class _MyHelpActivityScreenState
                           fontSize: 15,
                         ),
                       ),
-
-                      const SizedBox(
-                        height: 3,
-                      ),
-
-                      Text(
+                      const SizedBox(height: 3),
+                      const Text(
                         'Request owner',
-
-                        style:
-                            const TextStyle(
+                        style: TextStyle(
                           fontSize: 12,
                           color:
-                              Color(
-                            0xFF6B7280,
-                          ),
+                              Color(0xFF6B7280),
                         ),
                       ),
                     ],
@@ -1167,14 +1269,11 @@ class _MyHelpActivityScreenState
 
             const SizedBox(height: 18),
 
-            Text(
+            const Text(
               'Your response',
-
               style: TextStyle(
                 fontWeight:
                     FontWeight.bold,
-                color:
-                    Colors.grey.shade800,
               ),
             ),
 
@@ -1182,7 +1281,6 @@ class _MyHelpActivityScreenState
 
             Text(
               message,
-
               style: TextStyle(
                 fontSize: 14,
                 height: 1.4,
@@ -1236,10 +1334,8 @@ class _MyHelpActivityScreenState
     if (avatarUrl.isEmpty) {
       return const CircleAvatar(
         radius: 25,
-
         backgroundColor:
             Color(0xFFE5E7EB),
-
         child: Icon(
           Icons.person,
           color:
@@ -1250,15 +1346,10 @@ class _MyHelpActivityScreenState
 
     return CircleAvatar(
       radius: 25,
-
       backgroundColor:
           const Color(0xFFE5E7EB),
-
       backgroundImage:
-          NetworkImage(
-        avatarUrl,
-      ),
-
+          NetworkImage(avatarUrl),
       onBackgroundImageError:
           (exception, stackTrace) {},
     );
@@ -1271,7 +1362,7 @@ class _MyHelpActivityScreenState
   Widget _buildStatusChip(
     String status,
   ) {
-    final Color color =
+    final color =
         _statusColor(status);
 
     return Container(
@@ -1280,20 +1371,14 @@ class _MyHelpActivityScreenState
         horizontal: 9,
         vertical: 5,
       ),
-
       decoration: BoxDecoration(
         color:
             color.withAlpha(20),
-
         borderRadius:
-            BorderRadius.circular(
-          20,
-        ),
+            BorderRadius.circular(20),
       ),
-
       child: Text(
         status.toUpperCase(),
-
         style: TextStyle(
           fontSize: 10,
           fontWeight:
@@ -1319,16 +1404,11 @@ class _MyHelpActivityScreenState
           icon,
           size: 16,
           color:
-              const Color(
-            0xFF6B7280,
-          ),
+              const Color(0xFF6B7280),
         ),
-
         const SizedBox(width: 8),
-
         Text(
           '$label: ',
-
           style: const TextStyle(
             fontSize: 12,
             fontWeight:
@@ -1337,11 +1417,9 @@ class _MyHelpActivityScreenState
                 Color(0xFF4B5563),
           ),
         ),
-
         Expanded(
           child: Text(
             value,
-
             style: const TextStyle(
               fontSize: 12,
               color:
@@ -1364,31 +1442,23 @@ class _MyHelpActivityScreenState
   }) {
     return RefreshIndicator(
       onRefresh: _refresh,
-
       child: ListView(
         physics:
             const AlwaysScrollableScrollPhysics(),
-
         padding:
             const EdgeInsets.all(24),
-
         children: [
           const SizedBox(height: 100),
-
           Icon(
             icon,
             size: 70,
             color: Colors.grey,
           ),
-
           const SizedBox(height: 20),
-
           Text(
             title,
-
             textAlign:
                 TextAlign.center,
-
             style:
                 const TextStyle(
               fontSize: 20,
@@ -1396,17 +1466,12 @@ class _MyHelpActivityScreenState
                   FontWeight.bold,
             ),
           ),
-
           const SizedBox(height: 10),
-
           Text(
             message,
-
             textAlign:
                 TextAlign.center,
-
-            style:
-                const TextStyle(
+            style: const TextStyle(
               color: Colors.grey,
               height: 1.4,
             ),
@@ -1425,58 +1490,44 @@ class _MyHelpActivityScreenState
       child: Padding(
         padding:
             const EdgeInsets.all(24),
-
         child: Column(
           mainAxisAlignment:
               MainAxisAlignment.center,
-
           children: [
             const Icon(
               Icons.error_outline,
               size: 65,
               color: Colors.red,
             ),
-
             const SizedBox(height: 18),
-
             const Text(
               'Unable to load your activity',
-
               textAlign:
                   TextAlign.center,
-
               style: TextStyle(
                 fontSize: 19,
                 fontWeight:
                     FontWeight.bold,
               ),
             ),
-
             const SizedBox(height: 10),
-
             Text(
               _errorMessage ??
                   'An unknown error occurred.',
-
               textAlign:
                   TextAlign.center,
-
               style: const TextStyle(
                 color: Colors.grey,
               ),
             ),
-
             const SizedBox(height: 20),
-
             ElevatedButton.icon(
               onPressed:
                   _loadAllActivity,
-
               icon:
                   const Icon(
                 Icons.refresh,
               ),
-
               label:
                   const Text(
                 'Try Again',
