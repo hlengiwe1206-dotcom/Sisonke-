@@ -20,7 +20,9 @@ class _HelpRequestDetailScreenState
   final TextEditingController _messageController =
       TextEditingController();
 
-  String _selectedAvailability = 'Available immediately';
+  String _selectedAvailability =
+      'Available immediately';
+
   String _selectedContactMethod = 'Phone';
 
   bool _isSubmitting = false;
@@ -31,10 +33,9 @@ class _HelpRequestDetailScreenState
     super.dispose();
   }
 
-  // ----------------------------------------------------------
+  // ============================================================
   // SAFE REQUEST VALUE READER
-  // Works with both Map data and object/model data.
-  // ----------------------------------------------------------
+  // ============================================================
 
   dynamic _getValue(String fieldName) {
     final request = widget.request;
@@ -48,6 +49,9 @@ class _HelpRequestDetailScreenState
         case 'id':
           return request.id;
 
+        case 'user_id':
+          return request.userId;
+
         case 'title':
           return request.title;
 
@@ -59,6 +63,9 @@ class _HelpRequestDetailScreenState
 
         case 'status':
           return request.status;
+
+        case 'location':
+          return request.location;
 
         case 'urgent':
           return request.urgent;
@@ -77,7 +84,10 @@ class _HelpRequestDetailScreenState
     }
   }
 
-  String _safeText(String fieldName, [String fallback = 'Not provided']) {
+  String _safeText(
+    String fieldName, [
+    String fallback = 'Not provided',
+  ]) {
     final value = _getValue(fieldName);
 
     if (value == null) {
@@ -104,28 +114,62 @@ class _HelpRequestDetailScreenState
       return value;
     }
 
-    return value.toString().toLowerCase() == 'true';
+    final text =
+        value.toString().trim().toLowerCase();
+
+    return text == 'true' ||
+        text == '1' ||
+        text == 'yes';
   }
+
+  // ============================================================
+  // POSTER PROFILE
+  //
+  // These values are added by HelpExchangeScreen:
+  //
+  // poster_name
+  // poster_avatar_url
+  // ============================================================
+
+  String _getPosterName() {
+    return _safeText(
+      'poster_name',
+      _safeText(
+        'requester_name',
+        'Sisonke Member',
+      ),
+    );
+  }
+
+  String _getPosterAvatarUrl() {
+    return _safeText(
+      'poster_avatar_url',
+      '',
+    );
+  }
+
+  // ============================================================
+  // FORMAT DATE
+  // ============================================================
 
   String _formatDate() {
     final value =
-        _getValue('created_at') ?? _getValue('createdAt');
+        _getValue('created_at') ??
+            _getValue('createdAt');
 
     if (value == null) {
       return 'Recently posted';
     }
 
     try {
-      DateTime date;
+      final DateTime date =
+          value is DateTime
+              ? value
+              : DateTime.parse(
+                  value.toString(),
+                );
 
-      if (value is DateTime) {
-        date = value;
-      } else {
-        date = DateTime.parse(value.toString());
-      }
-
-      return
-          '${date.day.toString().padLeft(2, '0')}/'
+      return '${date.day.toString().padLeft(2, '0')}/'
           '${date.month.toString().padLeft(2, '0')}/'
           '${date.year}';
     } catch (_) {
@@ -133,9 +177,9 @@ class _HelpRequestDetailScreenState
     }
   }
 
-  // ----------------------------------------------------------
-  // SUBMIT TEST RESPONSE
-  // ----------------------------------------------------------
+  // ============================================================
+  // SUBMIT RESPONSE
+  // ============================================================
 
   Future<void> _submitResponse() async {
     if (!_formKey.currentState!.validate()) {
@@ -146,7 +190,8 @@ class _HelpRequestDetailScreenState
       _isSubmitting = true;
     });
 
-    // Simulates processing.
+    // Current implementation keeps the existing
+    // successful test-response behaviour.
     await Future.delayed(
       const Duration(seconds: 1),
     );
@@ -159,7 +204,6 @@ class _HelpRequestDetailScreenState
       _isSubmitting = false;
     });
 
-    // For testing purposes, show captured information.
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
         content: Text(
@@ -180,28 +224,61 @@ class _HelpRequestDetailScreenState
     Navigator.pop(context);
   }
 
+  // ============================================================
+  // BUILD SCREEN
+  // ============================================================
+
   @override
   Widget build(BuildContext context) {
-    final String title = _safeText('title', 'Help Request');
+    final String title =
+        _safeText(
+      'title',
+      'Help Request',
+    );
 
     final String description =
-        _safeText('description', 'No description provided.');
+        _safeText(
+      'description',
+      'No description provided.',
+    );
 
     final String category =
-        _safeText('category', 'General');
+        _safeText(
+      'category',
+      'General',
+    );
 
     final String status =
-        _safeText('status', 'Open');
+        _safeText(
+      'status',
+      'Open',
+    );
 
-    final bool urgent = _safeBool('urgent');
+    final String location =
+        _safeText(
+      'location',
+      'Location not specified',
+    );
+
+    final String posterName =
+        _getPosterName();
+
+    final String posterAvatarUrl =
+        _getPosterAvatarUrl();
+
+    final bool urgent =
+        _safeBool('urgent');
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF6F7FB),
+      backgroundColor:
+          const Color(0xFFF6F7FB),
 
       appBar: AppBar(
         elevation: 0,
         backgroundColor: Colors.white,
-        foregroundColor: const Color(0xFF1F2937),
+        foregroundColor:
+            const Color(0xFF1F2937),
+
         title: const Text(
           'Request Details',
           style: TextStyle(
@@ -212,29 +289,43 @@ class _HelpRequestDetailScreenState
 
       body: SafeArea(
         child: SingleChildScrollView(
-          padding: const EdgeInsets.all(16),
+          padding:
+              const EdgeInsets.all(16),
 
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+            crossAxisAlignment:
+                CrossAxisAlignment.start,
 
             children: [
-              // ------------------------------------------------
+              // ==================================================
               // REQUEST INFORMATION
-              // ------------------------------------------------
+              // ==================================================
 
               Container(
                 width: double.infinity,
-                padding: const EdgeInsets.all(20),
+
+                padding:
+                    const EdgeInsets.all(20),
 
                 decoration: BoxDecoration(
                   color: Colors.white,
-                  borderRadius: BorderRadius.circular(20),
+
+                  borderRadius:
+                      BorderRadius.circular(
+                    20,
+                  ),
 
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.black.withAlpha(15),
+                      color:
+                          Colors.black.withAlpha(
+                        15,
+                      ),
+
                       blurRadius: 12,
-                      offset: const Offset(0, 5),
+
+                      offset:
+                          const Offset(0, 5),
                     ),
                   ],
                 ),
@@ -244,37 +335,89 @@ class _HelpRequestDetailScreenState
                       CrossAxisAlignment.start,
 
                   children: [
+                    // ==========================================
+                    // POSTER PROFILE
+                    // ==========================================
+
+                    _buildPosterProfile(
+                      posterName:
+                          posterName,
+                      avatarUrl:
+                          posterAvatarUrl,
+                      location:
+                          location,
+                    ),
+
+                    const SizedBox(
+                      height: 22,
+                    ),
+
+                    const Divider(),
+
+                    const SizedBox(
+                      height: 20,
+                    ),
+
+                    // ==========================================
+                    // TITLE
+                    // ==========================================
+
                     Row(
+                      crossAxisAlignment:
+                          CrossAxisAlignment.start,
+
                       children: [
                         Expanded(
                           child: Text(
                             title,
-                            style: const TextStyle(
+
+                            style:
+                                const TextStyle(
                               fontSize: 24,
-                              fontWeight: FontWeight.bold,
-                              color: Color(0xFF1F2937),
+                              fontWeight:
+                                  FontWeight.bold,
+                              color: Color(
+                                0xFF1F2937,
+                              ),
                             ),
                           ),
                         ),
 
                         if (urgent)
                           Container(
-                            padding: const EdgeInsets.symmetric(
+                            margin:
+                                const EdgeInsets.only(
+                              left: 10,
+                            ),
+
+                            padding:
+                                const EdgeInsets
+                                    .symmetric(
                               horizontal: 10,
                               vertical: 6,
                             ),
 
-                            decoration: BoxDecoration(
+                            decoration:
+                                BoxDecoration(
                               color:
-                                  Colors.red.withAlpha(25),
+                                  Colors.red
+                                      .withAlpha(
+                                25,
+                              ),
+
                               borderRadius:
-                                  BorderRadius.circular(20),
+                                  BorderRadius
+                                      .circular(
+                                20,
+                              ),
                             ),
 
                             child: const Text(
                               'URGENT',
+
                               style: TextStyle(
-                                color: Colors.red,
+                                color:
+                                    Colors.red,
                                 fontWeight:
                                     FontWeight.bold,
                                 fontSize: 11,
@@ -284,7 +427,13 @@ class _HelpRequestDetailScreenState
                       ],
                     ),
 
-                    const SizedBox(height: 18),
+                    const SizedBox(
+                      height: 18,
+                    ),
+
+                    // ==========================================
+                    // REQUEST METADATA
+                    // ==========================================
 
                     Wrap(
                       spacing: 10,
@@ -292,151 +441,218 @@ class _HelpRequestDetailScreenState
 
                       children: [
                         _buildInfoChip(
-                          icon: Icons.category_outlined,
+                          icon: Icons
+                              .category_outlined,
                           label: category,
                         ),
 
                         _buildInfoChip(
-                          icon: Icons.info_outline,
+                          icon:
+                              Icons.info_outline,
                           label: status,
                         ),
 
                         _buildInfoChip(
-                          icon: Icons.calendar_today_outlined,
+                          icon: Icons
+                              .calendar_today_outlined,
                           label: _formatDate(),
                         ),
+
+                        if (location
+                            .isNotEmpty)
+                          _buildInfoChip(
+                            icon: Icons
+                                .location_on_outlined,
+                            label: location,
+                          ),
                       ],
                     ),
 
-                    const SizedBox(height: 22),
+                    const SizedBox(
+                      height: 22,
+                    ),
+
+                    // ==========================================
+                    // DESCRIPTION
+                    // ==========================================
 
                     const Text(
                       'Description',
+
                       style: TextStyle(
                         fontSize: 16,
-                        fontWeight: FontWeight.bold,
+                        fontWeight:
+                            FontWeight.bold,
                       ),
                     ),
 
-                    const SizedBox(height: 8),
+                    const SizedBox(
+                      height: 8,
+                    ),
 
                     Text(
                       description,
+
                       style: TextStyle(
                         fontSize: 15,
                         height: 1.5,
-                        color: Colors.grey.shade700,
+                        color:
+                            Colors.grey.shade700,
                       ),
                     ),
                   ],
                 ),
               ),
 
-              const SizedBox(height: 24),
+              const SizedBox(
+                height: 24,
+              ),
 
-              // ------------------------------------------------
+              // ==================================================
               // RESPONSE FORM
-              // ------------------------------------------------
+              // ==================================================
 
               const Text(
                 'Respond to this request',
+
                 style: TextStyle(
                   fontSize: 21,
-                  fontWeight: FontWeight.bold,
-                  color: Color(0xFF1F2937),
+                  fontWeight:
+                      FontWeight.bold,
+                  color:
+                      Color(0xFF1F2937),
                 ),
               ),
 
-              const SizedBox(height: 8),
+              const SizedBox(
+                height: 8,
+              ),
 
               Text(
-                'Tell the person how you can assist.',
+                'Tell $posterName how you can assist.',
+
                 style: TextStyle(
-                  color: Colors.grey.shade600,
+                  color:
+                      Colors.grey.shade600,
                 ),
               ),
 
-              const SizedBox(height: 18),
+              const SizedBox(
+                height: 18,
+              ),
 
               Form(
                 key: _formKey,
 
                 child: Column(
                   children: [
-                    // ----------------------------------------
+                    // ==========================================
                     // MESSAGE
-                    // ----------------------------------------
+                    // ==========================================
 
                     TextFormField(
-                      controller: _messageController,
+                      controller:
+                          _messageController,
 
                       maxLines: 6,
 
                       validator: (value) {
                         if (value == null ||
-                            value.trim().isEmpty) {
-                          return
-                              'Please enter a message.';
+                            value
+                                .trim()
+                                .isEmpty) {
+                          return 'Please enter a message.';
                         }
 
-                        if (value.trim().length < 10) {
-                          return
-                              'Please provide a little more information.';
+                        if (value
+                                .trim()
+                                .length <
+                            10) {
+                          return 'Please provide a little more information.';
                         }
 
                         return null;
                       },
 
-                      decoration: InputDecoration(
-                        labelText: 'How can you help?',
+                      decoration:
+                          InputDecoration(
+                        labelText:
+                            'How can you help?',
+
                         hintText:
                             'Explain how you can assist with this request...',
 
-                        alignLabelWithHint: true,
+                        alignLabelWithHint:
+                            true,
 
-                        border: OutlineInputBorder(
+                        border:
+                            OutlineInputBorder(
                           borderRadius:
-                              BorderRadius.circular(14),
+                              BorderRadius
+                                  .circular(
+                            14,
+                          ),
                         ),
 
                         enabledBorder:
                             OutlineInputBorder(
                           borderRadius:
-                              BorderRadius.circular(14),
+                              BorderRadius
+                                  .circular(
+                            14,
+                          ),
 
-                          borderSide: BorderSide(
-                            color: Colors.grey.shade300,
+                          borderSide:
+                              BorderSide(
+                            color:
+                                Colors.grey
+                                    .shade300,
                           ),
                         ),
 
                         focusedBorder:
                             OutlineInputBorder(
                           borderRadius:
-                              BorderRadius.circular(14),
+                              BorderRadius
+                                  .circular(
+                            14,
+                          ),
 
-                          borderSide: const BorderSide(
-                            color: Color(0xFFFFB300),
+                          borderSide:
+                              const BorderSide(
+                            color:
+                                Color(0xFFFFB300),
                             width: 2,
                           ),
                         ),
                       ),
                     ),
 
-                    const SizedBox(height: 22),
+                    const SizedBox(
+                      height: 22,
+                    ),
 
-                    // ----------------------------------------
+                    // ==========================================
                     // AVAILABILITY
-                    // ----------------------------------------
+                    // ==========================================
 
-                    DropdownButtonFormField<String>(
-                      value: _selectedAvailability,
+                    DropdownButtonFormField<
+                        String>(
+                      value:
+                          _selectedAvailability,
 
-                      decoration: InputDecoration(
-                        labelText: 'Availability',
+                      decoration:
+                          InputDecoration(
+                        labelText:
+                            'Availability',
 
-                        border: OutlineInputBorder(
+                        border:
+                            OutlineInputBorder(
                           borderRadius:
-                              BorderRadius.circular(14),
+                              BorderRadius
+                                  .circular(
+                            14,
+                          ),
                         ),
                       ),
 
@@ -444,7 +660,6 @@ class _HelpRequestDetailScreenState
                         DropdownMenuItem(
                           value:
                               'Available immediately',
-
                           child: Text(
                             'Available immediately',
                           ),
@@ -453,15 +668,14 @@ class _HelpRequestDetailScreenState
                         DropdownMenuItem(
                           value:
                               'Available today',
-
-                          child:
-                              Text('Available today'),
+                          child: Text(
+                            'Available today',
+                          ),
                         ),
 
                         DropdownMenuItem(
                           value:
                               'Available this week',
-
                           child: Text(
                             'Available this week',
                           ),
@@ -470,7 +684,6 @@ class _HelpRequestDetailScreenState
                         DropdownMenuItem(
                           value:
                               'Available by arrangement',
-
                           child: Text(
                             'Available by arrangement',
                           ),
@@ -489,44 +702,56 @@ class _HelpRequestDetailScreenState
                       },
                     ),
 
-                    const SizedBox(height: 20),
+                    const SizedBox(
+                      height: 20,
+                    ),
 
-                    // ----------------------------------------
+                    // ==========================================
                     // CONTACT METHOD
-                    // ----------------------------------------
+                    // ==========================================
 
-                    DropdownButtonFormField<String>(
+                    DropdownButtonFormField<
+                        String>(
                       value:
                           _selectedContactMethod,
 
-                      decoration: InputDecoration(
+                      decoration:
+                          InputDecoration(
                         labelText:
                             'Preferred contact method',
 
-                        border: OutlineInputBorder(
+                        border:
+                            OutlineInputBorder(
                           borderRadius:
-                              BorderRadius.circular(14),
+                              BorderRadius
+                                  .circular(
+                            14,
+                          ),
                         ),
                       ),
 
                       items: const [
                         DropdownMenuItem(
                           value: 'Phone',
-                          child: Text('Phone'),
+                          child:
+                              Text('Phone'),
                         ),
 
                         DropdownMenuItem(
                           value: 'WhatsApp',
-                          child: Text('WhatsApp'),
+                          child:
+                              Text('WhatsApp'),
                         ),
 
                         DropdownMenuItem(
                           value: 'Email',
-                          child: Text('Email'),
+                          child:
+                              Text('Email'),
                         ),
 
                         DropdownMenuItem(
-                          value: 'In-app message',
+                          value:
+                              'In-app message',
                           child: Text(
                             'In-app message',
                           ),
@@ -545,25 +770,31 @@ class _HelpRequestDetailScreenState
                       },
                     ),
 
-                    const SizedBox(height: 30),
+                    const SizedBox(
+                      height: 30,
+                    ),
 
-                    // ----------------------------------------
+                    // ==========================================
                     // SUBMIT BUTTON
-                    // ----------------------------------------
+                    // ==========================================
 
                     SizedBox(
                       width: double.infinity,
                       height: 55,
 
                       child: ElevatedButton(
-                        onPressed: _isSubmitting
-                            ? null
-                            : _submitResponse,
+                        onPressed:
+                            _isSubmitting
+                                ? null
+                                : _submitResponse,
 
                         style:
-                            ElevatedButton.styleFrom(
+                            ElevatedButton
+                                .styleFrom(
                           backgroundColor:
-                              const Color(0xFFFFB300),
+                              const Color(
+                            0xFFFFB300,
+                          ),
 
                           foregroundColor:
                               Colors.white,
@@ -573,7 +804,10 @@ class _HelpRequestDetailScreenState
                           shape:
                               RoundedRectangleBorder(
                             borderRadius:
-                                BorderRadius.circular(14),
+                                BorderRadius
+                                    .circular(
+                              14,
+                            ),
                           ),
                         ),
 
@@ -585,22 +819,29 @@ class _HelpRequestDetailScreenState
                                 child:
                                     CircularProgressIndicator(
                                   strokeWidth: 3,
-                                  color: Colors.white,
+                                  color:
+                                      Colors
+                                          .white,
                                 ),
                               )
-
                             : const Text(
                                 'Submit Response',
-                                style: TextStyle(
-                                  fontSize: 16,
+
+                                style:
+                                    TextStyle(
+                                  fontSize:
+                                      16,
                                   fontWeight:
-                                      FontWeight.bold,
+                                      FontWeight
+                                          .bold,
                                 ),
                               ),
                       ),
                     ),
 
-                    const SizedBox(height: 30),
+                    const SizedBox(
+                      height: 30,
+                    ),
                   ],
                 ),
               ),
@@ -611,43 +852,232 @@ class _HelpRequestDetailScreenState
     );
   }
 
-  // ----------------------------------------------------------
+  // ============================================================
+  // POSTER PROFILE
+  // ============================================================
+
+  Widget _buildPosterProfile({
+    required String posterName,
+    required String avatarUrl,
+    required String location,
+  }) {
+    return Row(
+      children: [
+        _buildAvatar(avatarUrl),
+
+        const SizedBox(
+          width: 14,
+        ),
+
+        Expanded(
+          child: Column(
+            crossAxisAlignment:
+                CrossAxisAlignment.start,
+
+            children: [
+              Text(
+                posterName,
+
+                maxLines: 1,
+
+                overflow:
+                    TextOverflow.ellipsis,
+
+                style:
+                    const TextStyle(
+                  fontSize: 17,
+                  fontWeight:
+                      FontWeight.bold,
+                  color:
+                      Color(0xFF1F2937),
+                ),
+              ),
+
+              const SizedBox(
+                height: 4,
+              ),
+
+              Row(
+                children: [
+                  const Icon(
+                    Icons.person_outline,
+                    size: 15,
+                    color:
+                        Color(0xFF6B7280),
+                  ),
+
+                  const SizedBox(
+                    width: 5,
+                  ),
+
+                  const Expanded(
+                    child: Text(
+                      'Sisonke Community Member',
+
+                      overflow:
+                          TextOverflow.ellipsis,
+
+                      style:
+                          TextStyle(
+                        fontSize: 12,
+                        color:
+                            Color(0xFF6B7280),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+
+              if (location.isNotEmpty &&
+                  location !=
+                      'Location not specified') ...[
+                const SizedBox(
+                  height: 4,
+                ),
+
+                Row(
+                  children: [
+                    const Icon(
+                      Icons
+                          .location_on_outlined,
+                      size: 15,
+                      color:
+                          Color(0xFF6B7280),
+                    ),
+
+                    const SizedBox(
+                      width: 5,
+                    ),
+
+                    Expanded(
+                      child: Text(
+                        location,
+
+                        maxLines: 1,
+
+                        overflow:
+                            TextOverflow.ellipsis,
+
+                        style:
+                            const TextStyle(
+                          fontSize: 12,
+                          color:
+                              Color(
+                            0xFF6B7280,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ============================================================
+  // AVATAR
+  // ============================================================
+
+  Widget _buildAvatar(
+    String avatarUrl,
+  ) {
+    if (avatarUrl.isEmpty) {
+      return const CircleAvatar(
+        radius: 30,
+
+        backgroundColor:
+            Color(0xFFE5E7EB),
+
+        child: Icon(
+          Icons.person,
+          size: 30,
+          color:
+              Color(0xFF6B7280),
+        ),
+      );
+    }
+
+    return CircleAvatar(
+      radius: 30,
+
+      backgroundColor:
+          const Color(0xFFE5E7EB),
+
+      backgroundImage:
+          NetworkImage(avatarUrl),
+
+      onBackgroundImageError:
+          (
+        exception,
+        stackTrace,
+      ) {},
+    );
+  }
+
+  // ============================================================
   // INFO CHIP
-  // ----------------------------------------------------------
+  // ============================================================
 
   Widget _buildInfoChip({
     required IconData icon,
     required String label,
   }) {
     return Container(
-      padding: const EdgeInsets.symmetric(
+      padding:
+          const EdgeInsets.symmetric(
         horizontal: 10,
         vertical: 8,
       ),
 
       decoration: BoxDecoration(
-        color: const Color(0xFFF3F4F6),
-        borderRadius: BorderRadius.circular(10),
+        color:
+            const Color(0xFFF3F4F6),
+
+        borderRadius:
+            BorderRadius.circular(
+          10,
+        ),
       ),
 
       child: Row(
-        mainAxisSize: MainAxisSize.min,
+        mainAxisSize:
+            MainAxisSize.min,
 
         children: [
           Icon(
             icon,
             size: 16,
-            color: const Color(0xFF4B5563),
+            color:
+                const Color(
+              0xFF4B5563,
+            ),
           ),
 
-          const SizedBox(width: 6),
+          const SizedBox(
+            width: 6,
+          ),
 
-          Text(
-            label,
-            style: const TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-              color: Color(0xFF4B5563),
+          Flexible(
+            child: Text(
+              label,
+
+              overflow:
+                  TextOverflow.ellipsis,
+
+              style:
+                  const TextStyle(
+                fontSize: 12,
+                fontWeight:
+                    FontWeight.w600,
+                color:
+                    Color(
+                  0xFF4B5563,
+                ),
+              ),
             ),
           ),
         ],
