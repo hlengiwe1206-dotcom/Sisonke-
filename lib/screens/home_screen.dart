@@ -55,15 +55,17 @@ class _HomeScreenState extends State<HomeScreen> {
 
       setState(() {
         if (data != null) {
-          userName =
-              data['full_name']?.toString().trim().isNotEmpty == true
-                  ? data['full_name'].toString()
-                  : user.email?.split('@').first ?? 'Sisonke User';
+          final fullName = data['full_name']?.toString().trim();
+
+          userName = fullName != null && fullName.isNotEmpty
+              ? fullName
+              : user.email?.split('@').first ?? 'Sisonke User';
 
           avatarUrl = data['avatar_url']?.toString();
         } else {
           userName =
               user.email?.split('@').first ?? 'Sisonke User';
+          avatarUrl = null;
         }
 
         isLoadingProfile = false;
@@ -220,8 +222,9 @@ class _HomeScreenState extends State<HomeScreen> {
           child: Row(
             children: [
               Image.asset(
-                'assets/images/sisonke_logo.png',
-                height: 52,
+                'assets/brand/a3989bc-04e3-415a-ad24-60f9f0ed511e.png',
+                height: 58,
+                fit: BoxFit.contain,
                 errorBuilder:
                     (
                       context,
@@ -229,10 +232,11 @@ class _HomeScreenState extends State<HomeScreen> {
                       stackTrace,
                     ) {
                   return const Text(
-                    'Sisonke',
+                    'SISONKE',
                     style: TextStyle(
-                      fontSize: 34,
+                      fontSize: 28,
                       fontWeight: FontWeight.bold,
+                      letterSpacing: 2,
                     ),
                   );
                 },
@@ -399,7 +403,8 @@ class _HomeScreenState extends State<HomeScreen> {
             BorderRadius.circular(12),
         onTap: onTap,
         child: Padding(
-          padding: const EdgeInsets.all(16),
+          padding:
+              const EdgeInsets.all(16),
           child: Column(
             crossAxisAlignment:
                 CrossAxisAlignment.start,
@@ -438,7 +443,8 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _buildGettingStartedCard() {
     return Card(
       child: Padding(
-        padding: const EdgeInsets.all(20),
+        padding:
+            const EdgeInsets.all(20),
         child: Row(
           crossAxisAlignment:
               CrossAxisAlignment.start,
@@ -498,7 +504,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }) {
     final hasAvatar =
         avatarUrl != null &&
-            avatarUrl!.isNotEmpty;
+        avatarUrl!.isNotEmpty;
 
     return CircleAvatar(
       radius: radius,
