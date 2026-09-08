@@ -16,67 +16,35 @@ class HelpRequestDetailScreen extends StatefulWidget {
 
 class _HelpRequestDetailScreenState
     extends State<HelpRequestDetailScreen> {
-  final SupabaseClient _supabase = Supabase.instance.client;
+  final SupabaseClient _supabase =
+      Supabase.instance.client;
 
   final TextEditingController _messageController =
       TextEditingController();
 
-  bool _isLoading = true;
-  bool _isSubmitting = false;
+  bool _isLoadingOffers = true;
+  bool _isSubmittingOffer = false;
   bool _hasOfferedHelp = false;
 
   List<Map<String, dynamic>> _offers = [];
 
-  static const Color green = Color(0xFF007749);
-  static const Color darkGreen = Color(0xFF005A38);
-  static const Color red = Color(0xFFDE3831);
-  static const Color gold = Color(0xFFFFB81C);
-  static const Color ivory = Color(0xFFF8F7F2);
+  // ============================================================
+  // SAFE VALUE HELPERS
+  // ============================================================
 
-  String get _requestId =>
-      (widget.request['id'] ?? '').toString();
-
-  String get _requesterId =>
-      (widget.request['requester_id'] ??
-              widget.request['user_id'] ??
-              '')
-          .toString();
-
-  String get _title =>
-      _text(widget.request['title'], 'Help Request');
-
-  String get _description =>
-      _text(
-        widget.request['description'] ??
-            widget.request['content'],
-        'No description provided.',
-      );
-
-  String get _category =>
-      _text(widget.request['category'], 'General Assistance');
-
-  String get _location =>
-      _text(widget.request['location'], 'Location not specified');
-
-  String get _status =>
-      _text(widget.request['status'], 'open');
-
-  bool get _urgent =>
-      _bool(
-        widget.request['urgent'] ??
-            widget.request['is_urgent'],
-      );
-
-  String _text(dynamic value, String fallback) {
+  String _text(
+    dynamic value, [
+    String fallback = '',
+  ]) {
     if (value == null) return fallback;
 
-    final text = value.toString().trim();
+    final valueText = value.toString().trim();
 
-    if (text.isEmpty || text == 'null') {
+    if (valueText.isEmpty || valueText == 'null') {
       return fallback;
     }
 
-    return text;
+    return valueText;
   }
 
   bool _bool(dynamic value) {
@@ -84,28 +52,438 @@ class _HelpRequestDetailScreenState
 
     if (value is bool) return value;
 
-    final text = value.toString().toLowerCase().trim();
+    final text = value.toString().trim().toLowerCase();
 
     return text == 'true' ||
         text == '1' ||
         text == 'yes';
   }
 
-  DateTime? _date(dynamic value) {
-    if (value == null) return null;
+  String get _requestId =>
+      _text(widget.request['id']);
 
-    return DateTime.tryParse(value.toString());
+  String get _requesterId =>
+      _text(widget.request['requester_id']);
+
+  String get _title =>
+      _text(
+        widget.request['title'],
+        'Community Help Request',
+      );
+
+  String get _description =>
+      _text(
+        widget.request['description'],
+        'No description provided.',
+      );
+
+  String get _category =>
+      _text(
+        widget.request['category'],
+        'General Assistance',
+      );
+
+  String get _location =>
+      _text(
+        widget.request['location'],
+        'Location not specified',
+      );
+
+  String get _status =>
+      _text(
+        widget.request['status'],
+        'open',
+      );
+
+  bool get _urgent =>
+      _bool(widget.request['urgent']);
+
+  String get _posterName =>
+      _text(
+        widget.request['poster_name'],
+        'Sisonke Member',
+      );
+
+  String get _posterAvatarUrl =>
+      _text(
+        widget.request['poster_avatar_url'],
+      );
+
+  // ============================================================
+  // INIT
+  // ============================================================
+
+  @override
+  void initState() {
+    super.initState();
+
+    _loadOffers();
   }
 
+  @override
+  void dispose() {
+    _messageController.dispose();
+    super.dispose();
+  }
+
+  // ============================================================
+  // LOAD OFFERS
+  // ============================================================
+
+  Future<void> _loadOffers() async {
+    if (_requestId.isEmpty) {
+      if (mounted) {
+        setState(() {
+          _isLoadingOffers = false;
+        });
+      }
+
+      return;
+    }
+
+    try {
+      final response = await _supabase
+          .from('help_offers')
+          .select()
+          .eq('help_request_id', _requestId)
+          .order(
+            'created_at',
+            ascending: false,
+          );
+
+      final offers = List<Map<String, dynamic>>.from(
+        response,
+      );
+
+      final currentUser =
+          _supabase.auth.currentUser;
+
+      if (currentUser != null) {
+        _hasOfferedHelp = offers.any(
+          (offer) =>
+              _text(offer['helper_id']) ==
+              currentUser.id &&
+              _text(offer['status']).toLowerCase() !=
+                  'declined',
+        );
+      }
+
+      if (!mounted) return;
+
+      setState(() {
+        _offers = offers;
+        _isLoadingOffers = false;
+      });
+    } catch (error) {
+      debugPrint(
+        'SISONKE LOAD HELP OFFERS ERROR: $error',
+      );
+
+      if (!mounted) return;
+
+      setState(() {
+        _isLoadingOffers = false;
+      });
+    }
+  }
+
+  // ============================================================
+  // OFFER HELP
+  // ============================================================
+
+  Future<void> _offerHelp() async {
+    final user = _supabase.auth.currentUser;
+
+    if (user == null) {
+      _showMessage(
+        'Please sign in before offering help.',
+        isError: true,
+      );
+
+      return;
+    }
+
+    if (_requestId.isEmpty) {
+      _showMessage(
+        'This help request could not be identified.',
+        isError: true,
+      );
+
+      return;
+    }
+
+    if (_requesterId == user.id) {
+      _showMessage(
+        'You cannot offer help to your own request.',
+        isError: true,
+      );
+
+      return;
+    }
+
+    if (_hasOfferedHelp) {
+      _showMessage(
+        'You have already offered to help with this request.',
+      );
+
+      return;
+    }
+
+    setState(() {
+      _isSubmittingOffer = true;
+    });
+
+    try {
+      await _supabase
+          .from('help_offers')
+          .insert({
+        'help_request_id': _requestId,
+        'helper_id': user.id,
+        'message':
+            _messageController.text.trim(),
+        'status': 'pending',
+      });
+
+      if (!mounted) return;
+
+      _messageController.clear();
+
+      setState(() {
+        _hasOfferedHelp = true;
+        _isSubmittingOffer = false;
+      });
+
+      _showMessage(
+        'Your offer to help has been sent.',
+      );
+
+      await _loadOffers();
+    } on PostgrestException catch (error) {
+      debugPrint(
+        'SISONKE OFFER HELP DATABASE ERROR: '
+        '${error.message}',
+      );
+
+      if (!mounted) return;
+
+      setState(() {
+        _isSubmittingOffer = false;
+      });
+
+      _showMessage(
+        'Unable to send your offer:\n${error.message}',
+        isError: true,
+      );
+    } catch (error) {
+      debugPrint(
+        'SISONKE OFFER HELP ERROR: $error',
+      );
+
+      if (!mounted) return;
+
+      setState(() {
+        _isSubmittingOffer = false;
+      });
+
+      _showMessage(
+        'Unable to send your offer.',
+        isError: true,
+      );
+    }
+  }
+
+  // ============================================================
+  // ACCEPT OFFER
+  // ============================================================
+
+  Future<void> _acceptOffer(
+    Map<String, dynamic> offer,
+  ) async {
+    final user = _supabase.auth.currentUser;
+
+    if (user == null) {
+      _showMessage(
+        'Please sign in again.',
+        isError: true,
+      );
+
+      return;
+    }
+
+    if (_requesterId != user.id) {
+      _showMessage(
+        'Only the person who requested help can accept an offer.',
+        isError: true,
+      );
+
+      return;
+    }
+
+    final offerId = _text(offer['id']);
+
+    if (offerId.isEmpty) {
+      _showMessage(
+        'This offer could not be identified.',
+        isError: true,
+      );
+
+      return;
+    }
+
+    final confirmed = await _confirmAcceptOffer();
+
+    if (!confirmed) return;
+
+    if (!mounted) return;
+
+    setState(() {
+      _isSubmittingOffer = true;
+    });
+
+    try {
+      final result = await _supabase.rpc(
+        'accept_help_offer',
+        params: {
+          'p_offer_id': offerId,
+        },
+      );
+
+      debugPrint(
+        'SISONKE ACCEPT OFFER RESULT: $result',
+      );
+
+      if (!mounted) return;
+
+      setState(() {
+        _isSubmittingOffer = false;
+      });
+
+      _showMessage(
+        'Offer accepted. Your help connection has been created.',
+      );
+
+      await _loadOffers();
+    } on PostgrestException catch (error) {
+      debugPrint(
+        'SISONKE ACCEPT OFFER DATABASE ERROR: '
+        '${error.message}',
+      );
+
+      if (!mounted) return;
+
+      setState(() {
+        _isSubmittingOffer = false;
+      });
+
+      _showMessage(
+        'Unable to accept this offer:\n${error.message}',
+        isError: true,
+      );
+    } catch (error) {
+      debugPrint(
+        'SISONKE ACCEPT OFFER ERROR: $error',
+      );
+
+      if (!mounted) return;
+
+      setState(() {
+        _isSubmittingOffer = false;
+      });
+
+      _showMessage(
+        'Unable to accept this offer.',
+        isError: true,
+      );
+    }
+  }
+
+  // ============================================================
+  // CONFIRM ACCEPTANCE
+  // ============================================================
+
+  Future<bool> _confirmAcceptOffer() async {
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text(
+            'Accept this offer?',
+            style: TextStyle(
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          content: const Text(
+            'Accepting this offer will connect you with this community member so you can work together to resolve the request.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.of(context).pop(false);
+              },
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              style: FilledButton.styleFrom(
+                backgroundColor:
+                    const Color(0xFF007749),
+              ),
+              onPressed: () {
+                Navigator.of(context).pop(true);
+              },
+              child: const Text('Accept Offer'),
+            ),
+          ],
+        );
+      },
+    );
+
+    return result == true;
+  }
+
+  // ============================================================
+  // ERROR / SUCCESS MESSAGE
+  // ============================================================
+
+  void _showMessage(
+    String message, {
+    bool isError = false,
+  }) {
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(message),
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: isError
+              ? Colors.red.shade700
+              : const Color(0xFF007749),
+        ),
+      );
+  }
+
+  // ============================================================
+  // DATE
+  // ============================================================
+
   String _formatDate(dynamic value) {
-    final date = _date(value);
+    if (value == null) {
+      return 'Recently posted';
+    }
+
+    final date = DateTime.tryParse(
+      value.toString(),
+    );
 
     if (date == null) {
       return 'Recently posted';
     }
 
-    final now = DateTime.now();
-    final difference = now.difference(date);
+    final local = date.toLocal();
+
+    final difference =
+        DateTime.now().difference(local);
 
     if (difference.inMinutes < 1) {
       return 'Just now';
@@ -127,1146 +505,159 @@ class _HelpRequestDetailScreenState
       return '${difference.inDays} days ago';
     }
 
-    return '${date.day.toString().padLeft(2, '0')}/'
-        '${date.month.toString().padLeft(2, '0')}/'
-        '${date.year}';
-  }
-
-  @override
-  void initState() {
-    super.initState();
-    _loadOffers();
-  }
-
-  @override
-  void dispose() {
-    _messageController.dispose();
-    super.dispose();
+    return '${local.day}/${local.month}/${local.year}';
   }
 
   // ============================================================
-  // LOAD OFFERS
+  // CATEGORY ICON
   // ============================================================
 
-  Future<void> _loadOffers() async {
-    if (_requestId.isEmpty) {
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-        });
-      }
-      return;
-    }
+  IconData _categoryIcon() {
+    switch (_category.toLowerCase()) {
+      case 'food':
+        return Icons.restaurant_outlined;
 
-    try {
-      final user = _supabase.auth.currentUser;
+      case 'employment':
+      case 'jobs':
+        return Icons.work_outline;
 
-      final List<dynamic> data = await _supabase
-          .from('help_offers')
-          .select()
-          .eq('help_request_id', _requestId)
-          .order('created_at', ascending: false);
+      case 'education':
+        return Icons.school_outlined;
 
-      final offers = data
-          .map(
-            (item) => Map<String, dynamic>.from(item),
-          )
-          .toList();
+      case 'healthcare':
+      case 'health':
+        return Icons.health_and_safety_outlined;
 
-      bool alreadyOffered = false;
+      case 'housing':
+        return Icons.home_work_outlined;
 
-      if (user != null) {
-        alreadyOffered = offers.any(
-          (offer) =>
-              offer['helper_id']?.toString() == user.id &&
-              _text(
-                    offer['status'],
-                    '',
-                  ).toLowerCase() !=
-                  'withdrawn',
-        );
-      }
+      case 'transport':
+        return Icons.directions_car_outlined;
 
-      if (!mounted) return;
+      case 'business':
+        return Icons.business_outlined;
 
-      setState(() {
-        _offers = offers;
-        _hasOfferedHelp = alreadyOffered;
-        _isLoading = false;
-      });
-    } catch (error) {
-      debugPrint(
-        'Error loading help offers: $error',
-      );
-
-      if (!mounted) return;
-
-      setState(() {
-        _isLoading = false;
-      });
-
-      _showMessage(
-        'Unable to load help offers.',
-        isError: true,
-      );
-    }
-  }
-
-  // ============================================================
-  // OFFER HELP
-  // ============================================================
-
-  Future<void> _offerHelp() async {
-    final user = _supabase.auth.currentUser;
-
-    if (user == null) {
-      _showMessage(
-        'Please sign in to offer help.',
-        isError: true,
-      );
-      return;
-    }
-
-    if (_requesterId == user.id) {
-      _showMessage(
-        'You cannot offer help on your own request.',
-        isError: true,
-      );
-      return;
-    }
-
-    if (_requestId.isEmpty) {
-      _showMessage(
-        'This help request is missing its ID.',
-        isError: true,
-      );
-      return;
-    }
-
-    if (_status.toLowerCase() != 'open') {
-      _showMessage(
-        'This help request is no longer open.',
-        isError: true,
-      );
-      return;
-    }
-
-    if (_hasOfferedHelp) {
-      _showMessage(
-        'You have already offered to help.',
-      );
-      return;
-    }
-
-    final message = await _showOfferDialog();
-
-    if (message == null) {
-      return;
-    }
-
-    setState(() {
-      _isSubmitting = true;
-    });
-
-    try {
-      await _supabase
-          .from('help_offers')
-          .insert({
-        'help_request_id': _requestId,
-        'helper_id': user.id,
-        'message': message,
-        'status': 'pending',
-      });
-
-      if (!mounted) return;
-
-      setState(() {
-        _isSubmitting = false;
-        _hasOfferedHelp = true;
-      });
-
-      _showMessage(
-        'Your offer to help has been sent.',
-      );
-
-      await _loadOffers();
-    } on PostgrestException catch (error) {
-      debugPrint(
-        'Database error creating help offer: '
-        '${error.message}',
-      );
-
-      if (!mounted) return;
-
-      setState(() {
-        _isSubmitting = false;
-      });
-
-      _showMessage(
-        'Unable to send your offer:\n${error.message}',
-        isError: true,
-      );
-    } catch (error) {
-      debugPrint(
-        'Error creating help offer: $error',
-      );
-
-      if (!mounted) return;
-
-      setState(() {
-        _isSubmitting = false;
-      });
-
-      _showMessage(
-        'Unable to send your offer.',
-        isError: true,
-      );
-    }
-  }
-
-  // ============================================================
-  // OFFER DIALOG
-  // ============================================================
-
-  Future<String?> _showOfferDialog() async {
-    final controller = TextEditingController();
-
-    final result = await showDialog<String>(
-      context: context,
-      builder: (dialogContext) {
-        return AlertDialog(
-          title: const Text(
-            'Offer Help',
-            style: TextStyle(
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment:
-                CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'Tell the requester how you can assist.',
-                style: TextStyle(
-                  color: Colors.black54,
-                ),
-              ),
-              const SizedBox(height: 16),
-              TextField(
-                controller: controller,
-                maxLines: 5,
-                maxLength: 500,
-                textCapitalization:
-                    TextCapitalization.sentences,
-                decoration: InputDecoration(
-                  hintText:
-                      'Example: I can assist with your CV and job applications.',
-                  border: OutlineInputBorder(
-                    borderRadius:
-                        BorderRadius.circular(14),
-                  ),
-                  focusedBorder:
-                      OutlineInputBorder(
-                    borderRadius:
-                        BorderRadius.circular(14),
-                    borderSide:
-                        const BorderSide(
-                      color: green,
-                      width: 2,
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () {
-                Navigator.pop(dialogContext);
-              },
-              child: const Text('Cancel'),
-            ),
-            ElevatedButton(
-              onPressed: () {
-                final message =
-                    controller.text.trim();
-
-                if (message.isEmpty) {
-                  return;
-                }
-
-                Navigator.pop(
-                  dialogContext,
-                  message,
-                );
-              },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: green,
-                foregroundColor: Colors.white,
-              ),
-              child: const Text('Offer Help'),
-            ),
-          ],
-        );
-      },
-    );
-
-    controller.dispose();
-
-    return result;
-  }
-
-  // ============================================================
-  // ACCEPT OFFER
-  // ============================================================
-
-  Future<void> _acceptOffer(
-    Map<String, dynamic> offer,
-  ) async {
-    final user = _supabase.auth.currentUser;
-
-    if (user == null) {
-      _showMessage(
-        'Please sign in.',
-        isError: true,
-      );
-      return;
-    }
-
-    if (_requesterId != user.id) {
-      _showMessage(
-        'Only the person who requested help can accept an offer.',
-        isError: true,
-      );
-      return;
-    }
-
-    final offerId =
-        (offer['id'] ?? '').toString();
-
-    if (offerId.isEmpty) {
-      _showMessage(
-        'This offer is missing its ID.',
-        isError: true,
-      );
-      return;
-    }
-
-    final confirmed =
-        await _showConfirmDialog(
-      title: 'Accept this offer?',
-      message:
-          'Accept this member as the person who will help you? Other pending offers will be declined.',
-    );
-
-    if (!confirmed) return;
-
-    setState(() {
-      _isSubmitting = true;
-    });
-
-    try {
-      await _supabase.rpc(
-        'accept_help_offer',
-        params: {
-          'p_help_offer_id': offerId,
-        },
-      );
-
-      if (!mounted) return;
-
-      setState(() {
-        _isSubmitting = false;
-      });
-
-      _showMessage(
-        'Offer accepted. Your help connection has been created.',
-      );
-
-      await _loadOffers();
-    } on PostgrestException catch (error) {
-      debugPrint(
-        'Error accepting help offer: ${error.message}',
-      );
-
-      if (!mounted) return;
-
-      setState(() {
-        _isSubmitting = false;
-      });
-
-      _showMessage(
-        'Unable to accept this offer:\n${error.message}',
-        isError: true,
-      );
-    } catch (error) {
-      debugPrint(
-        'Error accepting help offer: $error',
-      );
-
-      if (!mounted) return;
-
-      setState(() {
-        _isSubmitting = false;
-      });
-
-      _showMessage(
-        'Unable to accept this offer.',
-        isError: true,
-      );
-    }
-  }
-
-  // ============================================================
-  // WITHDRAW OFFER
-  // ============================================================
-
-  Future<void> _withdrawOffer(
-    Map<String, dynamic> offer,
-  ) async {
-    final offerId =
-        (offer['id'] ?? '').toString();
-
-    if (offerId.isEmpty) {
-      return;
-    }
-
-    final confirmed =
-        await _showConfirmDialog(
-      title: 'Withdraw offer?',
-      message:
-          'Your offer to help will be withdrawn.',
-    );
-
-    if (!confirmed) return;
-
-    try {
-      await _supabase.rpc(
-        'withdraw_help_offer',
-        params: {
-          'p_help_offer_id': offerId,
-        },
-      );
-
-      if (!mounted) return;
-
-      _showMessage(
-        'Your offer has been withdrawn.',
-      );
-
-      await _loadOffers();
-    } catch (error) {
-      debugPrint(
-        'Error withdrawing offer: $error',
-      );
-
-      if (!mounted) return;
-
-      _showMessage(
-        'Unable to withdraw the offer.',
-        isError: true,
-      );
-    }
-  }
-
-  // ============================================================
-  // CONFIRMATION DIALOG
-  // ============================================================
-
-  Future<bool> _showConfirmDialog({
-    required String title,
-    required String message,
-  }) async {
-    final result = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) {
-        return AlertDialog(
-          title: Text(
-            title,
-            style: const TextStyle(
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-          content: Text(message),
-          actions: [
-            TextButton(
-              onPressed: () {
-                Navigator.pop(
-                  dialogContext,
-                  false,
-                );
-              },
-              child: const Text('Cancel'),
-            ),
-            ElevatedButton(
-              onPressed: () {
-                Navigator.pop(
-                  dialogContext,
-                  true,
-                );
-              },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: green,
-                foregroundColor: Colors.white,
-              ),
-              child: const Text('Confirm'),
-            ),
-          ],
-        );
-      },
-    );
-
-    return result ?? false;
-  }
-
-  // ============================================================
-  // MESSAGE
-  // ============================================================
-
-  void _showMessage(
-    String message, {
-    bool isError = false,
-  }) {
-    if (!mounted) return;
-
-    ScaffoldMessenger.of(context)
-        .hideCurrentSnackBar();
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor:
-            isError ? Colors.red.shade700 : green,
-        behavior: SnackBarBehavior.floating,
-      ),
-    );
-  }
-
-  // ============================================================
-  // STATUS
-  // ============================================================
-
-  Color _statusColor(String status) {
-    switch (status.toLowerCase()) {
-      case 'open':
-        return green;
-
-      case 'matched':
-        return Colors.blue;
-
-      case 'completed':
-        return Colors.green;
-
-      case 'closed':
-        return Colors.grey;
+      case 'emergency':
+        return Icons.warning_amber_rounded;
 
       default:
-        return Colors.orange;
-    }
-  }
-
-  String _statusLabel(String status) {
-    switch (status.toLowerCase()) {
-      case 'open':
-        return 'OPEN';
-
-      case 'matched':
-        return 'MATCHED';
-
-      case 'completed':
-        return 'COMPLETED';
-
-      case 'closed':
-        return 'CLOSED';
-
-      default:
-        return status.toUpperCase();
+        return Icons.volunteer_activism_outlined;
     }
   }
 
   // ============================================================
-  // BUILD
+  // AVATAR
   // ============================================================
 
-  @override
-  Widget build(BuildContext context) {
-    final user =
-        _supabase.auth.currentUser;
-
-    final bool isOwner =
-        user != null &&
-        user.id == _requesterId;
-
-    final bool canOffer =
-        !isOwner &&
-        _status.toLowerCase() == 'open';
-
-    return Scaffold(
-      backgroundColor: ivory,
-      appBar: AppBar(
-        title: const Text(
-          'Help Request',
-          style: TextStyle(
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-        centerTitle: true,
-        backgroundColor: Colors.white,
-        foregroundColor: Colors.black87,
-        elevation: 0,
-      ),
-      body: _isLoading
-          ? const Center(
-              child: CircularProgressIndicator(
-                color: green,
-              ),
-            )
-          : RefreshIndicator(
-              color: green,
-              onRefresh: _loadOffers,
-              child: ListView(
-                padding: const EdgeInsets.all(18),
-                children: [
-                  _buildRequestCard(),
-                  const SizedBox(height: 22),
-                  _buildActionSection(
-                    isOwner: isOwner,
-                    canOffer: canOffer,
-                  ),
-                  const SizedBox(height: 22),
-                  _buildOffersSection(
-                    isOwner: isOwner,
-                  ),
-                  const SizedBox(height: 30),
-                ],
-              ),
-            ),
-    );
-  }
-
-  // ============================================================
-  // REQUEST CARD
-  // ============================================================
-
-  Widget _buildRequestCard() {
-    final statusColor =
-        _statusColor(_status);
-
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(22),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withAlpha(12),
-            blurRadius: 14,
-            offset: const Offset(0, 5),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment:
-            CrossAxisAlignment.start,
-        children: [
-          Row(
-            crossAxisAlignment:
-                CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                child: Text(
-                  _title,
-                  style: const TextStyle(
-                    fontSize: 23,
-                    fontWeight: FontWeight.bold,
-                    color: Color(0xFF17202A),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 10),
-              if (_urgent)
-                Container(
-                  padding:
-                      const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 6,
-                  ),
-                  decoration: BoxDecoration(
-                    color:
-                        red.withAlpha(20),
-                    borderRadius:
-                        BorderRadius.circular(20),
-                  ),
-                  child: const Text(
-                    'URGENT',
-                    style: TextStyle(
-                      color: red,
-                      fontSize: 11,
-                      fontWeight:
-                          FontWeight.bold,
-                    ),
-                  ),
-                ),
-            ],
-          ),
-
-          const SizedBox(height: 14),
-
-          Row(
-            children: [
-              _buildInfoChip(
-                Icons.category_outlined,
-                _category,
-              ),
-              const SizedBox(width: 8),
-              Flexible(
-                child: _buildInfoChip(
-                  Icons.location_on_outlined,
-                  _location,
-                ),
-              ),
-            ],
-          ),
-
-          const SizedBox(height: 18),
-
-          Text(
-            _description,
-            style: const TextStyle(
-              fontSize: 15,
-              height: 1.55,
-              color: Color(0xFF4B5563),
-            ),
-          ),
-
-          const SizedBox(height: 18),
-
-          Row(
-            children: [
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 6,
-                ),
-                decoration: BoxDecoration(
-                  color:
-                      statusColor.withAlpha(20),
-                  borderRadius:
-                      BorderRadius.circular(20),
-                ),
-                child: Text(
-                  _statusLabel(_status),
-                  style: TextStyle(
-                    color: statusColor,
-                    fontSize: 11,
-                    fontWeight:
-                        FontWeight.bold,
-                  ),
-                ),
-              ),
-              const Spacer(),
-              const Icon(
-                Icons.access_time,
-                size: 15,
-                color: Colors.grey,
-              ),
-              const SizedBox(width: 4),
-              Text(
-                _formatDate(
-                  widget.request['created_at'],
-                ),
-                style: const TextStyle(
-                  fontSize: 12,
-                  color: Colors.grey,
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildInfoChip(
-    IconData icon,
-    String text,
+  Widget _buildAvatar(
+    String url,
+    String name,
   ) {
-    return Container(
-      padding:
-          const EdgeInsets.symmetric(
-        horizontal: 10,
-        vertical: 7,
-      ),
-      decoration: BoxDecoration(
-        color: const Color(0xFFF3F5F4),
-        borderRadius:
-            BorderRadius.circular(20),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(
-            icon,
-            size: 15,
-            color: green,
-          ),
-          const SizedBox(width: 5),
-          Flexible(
-            child: Text(
-              text,
-              maxLines: 1,
-              overflow:
-                  TextOverflow.ellipsis,
-              style: const TextStyle(
-                fontSize: 12,
-                fontWeight:
-                    FontWeight.w600,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // ============================================================
-  // ACTION SECTION
-  // ============================================================
-
-  Widget _buildActionSection({
-    required bool isOwner,
-    required bool canOffer,
-  }) {
-    if (isOwner) {
-      return _buildOwnerBanner();
-    }
-
-    if (!canOffer) {
-      return Container(
-        padding: const EdgeInsets.all(18),
-        decoration: BoxDecoration(
-          color: Colors.grey.shade100,
-          borderRadius:
-              BorderRadius.circular(18),
-        ),
-        child: const Row(
-          children: [
-            Icon(
-              Icons.info_outline,
-              color: Colors.grey,
-            ),
-            SizedBox(width: 12),
-            Expanded(
-              child: Text(
-                'This help request is no longer accepting offers.',
-                style: TextStyle(
-                  fontWeight:
-                      FontWeight.w600,
-                ),
-              ),
-            ),
-          ],
-        ),
+    if (url.isNotEmpty) {
+      return CircleAvatar(
+        radius: 25,
+        backgroundImage: NetworkImage(url),
+        onBackgroundImageError:
+            (_, __) {},
       );
     }
 
-    return Container(
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [
-            green,
-            darkGreen,
-          ],
+    final firstLetter = name.isNotEmpty
+        ? name[0].toUpperCase()
+        : 'S';
+
+    return CircleAvatar(
+      radius: 25,
+      backgroundColor:
+          const Color(0xFF007749),
+      child: Text(
+        firstLetter,
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 20,
+          fontWeight: FontWeight.w800,
         ),
-        borderRadius:
-            BorderRadius.circular(20),
-      ),
-      child: Column(
-        crossAxisAlignment:
-            CrossAxisAlignment.start,
-        children: [
-          const Row(
-            children: [
-              Icon(
-                Icons.volunteer_activism,
-                color: Colors.white,
-                size: 28,
-              ),
-              SizedBox(width: 10),
-              Text(
-                'Can you help?',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 19,
-                  fontWeight:
-                      FontWeight.bold,
-                ),
-              ),
-            ],
-          ),
-
-          const SizedBox(height: 8),
-
-          Text(
-            _hasOfferedHelp
-                ? 'Your offer has been sent to the requester.'
-                : 'Offer your skills, time or resources to help another South African.',
-            style: const TextStyle(
-              color: Colors.white,
-              height: 1.4,
-            ),
-          ),
-
-          const SizedBox(height: 16),
-
-          SizedBox(
-            width: double.infinity,
-            height: 52,
-            child: ElevatedButton.icon(
-              onPressed:
-                  _isSubmitting ||
-                          _hasOfferedHelp
-                      ? null
-                      : _offerHelp,
-              icon: Icon(
-                _hasOfferedHelp
-                    ? Icons.check_circle
-                    : Icons.volunteer_activism,
-              ),
-              label: Text(
-                _hasOfferedHelp
-                    ? 'Offer Sent'
-                    : 'I CAN HELP',
-              ),
-              style:
-                  ElevatedButton.styleFrom(
-                backgroundColor:
-                    Colors.white,
-                foregroundColor: green,
-                disabledBackgroundColor:
-                    Colors.white
-                        .withAlpha(180),
-                disabledForegroundColor:
-                    green.withAlpha(180),
-                shape:
-                    RoundedRectangleBorder(
-                  borderRadius:
-                      BorderRadius.circular(14),
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildOwnerBanner() {
-    return Container(
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        color: gold.withAlpha(30),
-        borderRadius:
-            BorderRadius.circular(18),
-        border: Border.all(
-          color: gold.withAlpha(90),
-        ),
-      ),
-      child: const Row(
-        crossAxisAlignment:
-            CrossAxisAlignment.start,
-        children: [
-          Icon(
-            Icons.inbox_outlined,
-            color: Color(0xFF9A7200),
-            size: 27,
-          ),
-          SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment:
-                  CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'This is your help request',
-                  style: TextStyle(
-                    fontWeight:
-                        FontWeight.bold,
-                    fontSize: 16,
-                  ),
-                ),
-                SizedBox(height: 5),
-                Text(
-                  'People who can assist you will appear below. Review their offers and accept the person you would like to work with.',
-                  style: TextStyle(
-                    height: 1.4,
-                    color:
-                        Color(0xFF5F5500),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
       ),
     );
   }
 
   // ============================================================
-  // OFFERS
+  // OFFER CARD
   // ============================================================
-
-  Widget _buildOffersSection({
-    required bool isOwner,
-  }) {
-    final visibleOffers =
-        _offers.where((offer) {
-      final status = _text(
-        offer['status'],
-        'pending',
-      ).toLowerCase();
-
-      return status != 'withdrawn' &&
-          status != 'declined';
-    }).toList();
-
-    return Column(
-      crossAxisAlignment:
-          CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            const Expanded(
-              child: Text(
-                'People Who Can Help',
-                style: TextStyle(
-                  fontSize: 20,
-                  fontWeight:
-                      FontWeight.bold,
-                ),
-              ),
-            ),
-            if (visibleOffers.isNotEmpty)
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(
-                  horizontal: 9,
-                  vertical: 5,
-                ),
-                decoration: BoxDecoration(
-                  color:
-                      green.withAlpha(20),
-                  borderRadius:
-                      BorderRadius.circular(20),
-                ),
-                child: Text(
-                  '${visibleOffers.length}',
-                  style: const TextStyle(
-                    color: green,
-                    fontWeight:
-                        FontWeight.bold,
-                  ),
-                ),
-              ),
-          ],
-        ),
-
-        const SizedBox(height: 12),
-
-        if (visibleOffers.isEmpty)
-          _buildNoOffers()
-        else
-          ...visibleOffers.map(
-            (offer) => _buildOfferCard(
-              offer,
-              isOwner: isOwner,
-            ),
-          ),
-      ],
-    );
-  }
-
-  Widget _buildNoOffers() {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(22),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius:
-            BorderRadius.circular(18),
-      ),
-      child: const Column(
-        children: [
-          Icon(
-            Icons.people_outline,
-            size: 42,
-            color: Colors.grey,
-          ),
-          SizedBox(height: 10),
-          Text(
-            'No offers yet',
-            style: TextStyle(
-              fontWeight:
-                  FontWeight.bold,
-              fontSize: 16,
-            ),
-          ),
-          SizedBox(height: 5),
-          Text(
-            'When community members offer to help, their offers will appear here.',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              color: Colors.grey,
-              height: 1.4,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
 
   Widget _buildOfferCard(
-    Map<String, dynamic> offer, {
-    required bool isOwner,
-  }) {
-    final user =
+    Map<String, dynamic> offer,
+  ) {
+    final currentUser =
         _supabase.auth.currentUser;
 
     final helperId =
-        (offer['helper_id'] ?? '')
-            .toString();
+        _text(offer['helper_id']);
 
-    final bool isMyOffer =
-        user != null &&
-        helperId == user.id;
+    final isOwnOffer =
+        currentUser != null &&
+        helperId == currentUser.id;
 
-    final status = _text(
-      offer['status'],
-      'pending',
-    ).toLowerCase();
+    final status =
+        _text(
+          offer['status'],
+          'pending',
+        ).toLowerCase();
 
-    final statusColor =
-        status == 'accepted'
-            ? green
-            : status == 'declined'
-                ? red
-                : Colors.orange;
+    final message =
+        _text(
+          offer['message'],
+          'This community member has offered to help.',
+        );
+
+    String statusLabel;
+
+    switch (status) {
+      case 'accepted':
+        statusLabel = 'ACCEPTED';
+
+        break;
+
+      case 'declined':
+        statusLabel = 'DECLINED';
+
+        break;
+
+      default:
+        statusLabel = 'OFFER TO HELP';
+    }
+
+    Color statusColor;
+
+    switch (status) {
+      case 'accepted':
+        statusColor =
+            const Color(0xFF007749);
+
+        break;
+
+      case 'declined':
+        statusColor =
+            Colors.grey.shade600;
+
+        break;
+
+      default:
+        statusColor =
+            const Color(0xFF004B87);
+    }
 
     return Container(
-      margin:
-          const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(17),
+      margin: const EdgeInsets.only(
+        bottom: 14,
+      ),
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius:
             BorderRadius.circular(18),
         border: Border.all(
-          color: isMyOffer
-              ? green.withAlpha(70)
-              : Colors.grey.shade200,
+          color: const Color(0xFFE6E7E8),
         ),
       ),
       child: Column(
@@ -1275,29 +666,29 @@ class _HelpRequestDetailScreenState
         children: [
           Row(
             children: [
-              CircleAvatar(
-                radius: 23,
-                backgroundColor:
-                    green.withAlpha(25),
-                child: const Icon(
-                  Icons.person,
-                  color: green,
-                ),
+              _buildAvatar(
+                '',
+                isOwnOffer
+                    ? 'You'
+                    : 'S',
               ),
-              const SizedBox(width: 11),
+              const SizedBox(width: 12),
               Expanded(
                 child: Column(
                   crossAxisAlignment:
                       CrossAxisAlignment.start,
                   children: [
                     Text(
-                      isMyOffer
-                          ? 'You'
-                          : 'Sisonke Member',
-                      style: const TextStyle(
-                        fontWeight:
-                            FontWeight.bold,
+                      isOwnOffer
+                          ? 'You offered to help'
+                          : 'Sisonke Community Member',
+                      style:
+                          const TextStyle(
                         fontSize: 15,
+                        fontWeight:
+                            FontWeight.w800,
+                        color:
+                            Color(0xFF1F2937),
                       ),
                     ),
                     const SizedBox(height: 3),
@@ -1305,9 +696,11 @@ class _HelpRequestDetailScreenState
                       _formatDate(
                         offer['created_at'],
                       ),
-                      style: const TextStyle(
+                      style:
+                          const TextStyle(
                         fontSize: 12,
-                        color: Colors.grey,
+                        color:
+                            Color(0xFF69707A),
                       ),
                     ),
                   ],
@@ -1317,21 +710,24 @@ class _HelpRequestDetailScreenState
                 padding:
                     const EdgeInsets.symmetric(
                   horizontal: 9,
-                  vertical: 5,
+                  vertical: 6,
                 ),
-                decoration: BoxDecoration(
-                  color:
-                      statusColor.withAlpha(20),
+                decoration:
+                    BoxDecoration(
+                  color: statusColor
+                      .withAlpha(20),
                   borderRadius:
-                      BorderRadius.circular(20),
+                      BorderRadius.circular(
+                    20,
+                  ),
                 ),
                 child: Text(
-                  status.toUpperCase(),
+                  statusLabel,
                   style: TextStyle(
-                    color: statusColor,
                     fontSize: 10,
                     fontWeight:
-                        FontWeight.bold,
+                        FontWeight.w800,
+                    color: statusColor,
                   ),
                 ),
               ),
@@ -1341,10 +737,7 @@ class _HelpRequestDetailScreenState
           const SizedBox(height: 14),
 
           Text(
-            _text(
-              offer['message'],
-              'I can help with this request.',
-            ),
+            message,
             style: const TextStyle(
               fontSize: 14,
               height: 1.45,
@@ -1352,74 +745,89 @@ class _HelpRequestDetailScreenState
             ),
           ),
 
-          if (isOwner &&
+          if (_requesterId ==
+                  currentUser?.id &&
               status == 'pending') ...[
-            const SizedBox(height: 15),
+            const SizedBox(height: 14),
+
             SizedBox(
               width: double.infinity,
-              height: 48,
-              child: ElevatedButton.icon(
-                onPressed:
-                    _isSubmitting
-                        ? null
-                        : () => _acceptOffer(
-                              offer,
-                            ),
-                icon: const Icon(
-                  Icons.check_circle_outline,
-                ),
-                label: const Text(
-                  'ACCEPT THIS OFFER',
-                  style: TextStyle(
-                    fontWeight:
-                        FontWeight.bold,
-                  ),
-                ),
+              child: FilledButton.icon(
                 style:
-                    ElevatedButton.styleFrom(
-                  backgroundColor: green,
+                    FilledButton.styleFrom(
+                  backgroundColor:
+                      const Color(0xFF007749),
                   foregroundColor:
                       Colors.white,
+                  padding:
+                      const EdgeInsets.symmetric(
+                    vertical: 13,
+                  ),
                   shape:
                       RoundedRectangleBorder(
                     borderRadius:
-                        BorderRadius.circular(13),
+                        BorderRadius.circular(
+                      13,
+                    ),
+                  ),
+                ),
+                onPressed:
+                    _isSubmittingOffer
+                        ? null
+                        : () =>
+                            _acceptOffer(
+                              offer,
+                            ),
+                icon: const Icon(
+                  Icons.handshake_outlined,
+                ),
+                label: const Text(
+                  'ACCEPT OFFER',
+                  style: TextStyle(
+                    fontWeight:
+                        FontWeight.w800,
                   ),
                 ),
               ),
             ),
           ],
 
-          if (isMyOffer &&
-              status == 'pending') ...[
-            const SizedBox(height: 10),
-            SizedBox(
+          if (status == 'accepted') ...[
+            const SizedBox(height: 12),
+
+            Container(
               width: double.infinity,
-              height: 44,
-              child: OutlinedButton.icon(
-                onPressed:
-                    _isSubmitting
-                        ? null
-                        : () => _withdrawOffer(
-                              offer,
-                            ),
-                icon: const Icon(
-                  Icons.undo,
-                  size: 18,
-                ),
-                label: const Text(
-                  'Withdraw Offer',
-                ),
-                style:
-                    OutlinedButton.styleFrom(
-                  foregroundColor:
-                      Colors.grey.shade700,
-                  shape:
-                      RoundedRectangleBorder(
-                    borderRadius:
-                        BorderRadius.circular(13),
+              padding:
+                  const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color:
+                    const Color(0xFF007749)
+                        .withAlpha(14),
+                borderRadius:
+                    BorderRadius.circular(12),
+              ),
+              child: const Row(
+                children: [
+                  Icon(
+                    Icons.check_circle,
+                    color:
+                        Color(0xFF007749),
+                    size: 20,
                   ),
-                ),
+                  SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Help connection created. You can now work together on this request.',
+                      style: TextStyle(
+                        fontSize: 13,
+                        color:
+                            Color(0xFF005A38),
+                        fontWeight:
+                            FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
           ],
@@ -1427,4 +835,599 @@ class _HelpRequestDetailScreenState
       ),
     );
   }
+
+  // ============================================================
+  // REQUEST HEADER
+  // ============================================================
+
+  Widget _buildRequestHeader() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius:
+            BorderRadius.circular(22),
+        border: Border.all(
+          color: const Color(0xFFE6E7E8),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment:
+            CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              _buildAvatar(
+                _posterAvatarUrl,
+                _posterName,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment:
+                      CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      _posterName,
+                      maxLines: 1,
+                      overflow:
+                          TextOverflow.ellipsis,
+                      style:
+                          const TextStyle(
+                        fontSize: 15,
+                        fontWeight:
+                            FontWeight.w800,
+                        color:
+                            Color(0xFF1F2937),
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      _formatDate(
+                        widget.request[
+                            'created_at'],
+                      ),
+                      style:
+                          const TextStyle(
+                        fontSize: 12,
+                        color:
+                            Color(0xFF69707A),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (_urgent)
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 7,
+                  ),
+                  decoration:
+                      BoxDecoration(
+                    color:
+                        Colors.red.shade50,
+                    borderRadius:
+                        BorderRadius.circular(
+                      20,
+                    ),
+                  ),
+                  child: Text(
+                    'URGENT',
+                    style: TextStyle(
+                      color:
+                          Colors.red.shade700,
+                      fontSize: 10,
+                      fontWeight:
+                          FontWeight.w900,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+
+          const SizedBox(height: 22),
+
+          Row(
+            children: [
+              Container(
+                width: 46,
+                height: 46,
+                decoration: BoxDecoration(
+                  color:
+                      const Color(0xFF007749)
+                          .withAlpha(18),
+                  borderRadius:
+                      BorderRadius.circular(
+                    14,
+                  ),
+                ),
+                child: Icon(
+                  _categoryIcon(),
+                  color:
+                      const Color(0xFF007749),
+                  size: 24,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  _category,
+                  style:
+                      const TextStyle(
+                    fontSize: 13,
+                    fontWeight:
+                        FontWeight.w700,
+                    color:
+                        Color(0xFF007749),
+                  ),
+                ),
+              ),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 7,
+                ),
+                decoration: BoxDecoration(
+                  color: const Color(
+                    0xFFF3F4F6,
+                  ),
+                  borderRadius:
+                      BorderRadius.circular(
+                    20,
+                  ),
+                ),
+                child: Text(
+                  _status.toUpperCase(),
+                  style: const TextStyle(
+                    fontSize: 10,
+                    fontWeight:
+                        FontWeight.w800,
+                    color:
+                        Color(0xFF4B5563),
+                  ),
+                ),
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 20),
+
+          Text(
+            _title,
+            style: const TextStyle(
+              fontSize: 25,
+              height: 1.18,
+              fontWeight: FontWeight.w900,
+              color: Color(0xFF111827),
+            ),
+          ),
+
+          const SizedBox(height: 14),
+
+          Text(
+            _description,
+            style: const TextStyle(
+              fontSize: 15,
+              height: 1.6,
+              color: Color(0xFF4B5563),
+            ),
+          ),
+
+          if (_location.isNotEmpty) ...[
+            const SizedBox(height: 18),
+
+            Row(
+              children: [
+                const Icon(
+                  Icons.location_on_outlined,
+                  size: 20,
+                  color:
+                      Color(0xFF69707A),
+                ),
+                const SizedBox(width: 7),
+                Expanded(
+                  child: Text(
+                    _location,
+                    style:
+                        const TextStyle(
+                      fontSize: 13,
+                      color:
+                          Color(0xFF69707A),
+                      fontWeight:
+                          FontWeight.w500,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  // ============================================================
+  // OFFER FORM
+  // ============================================================
+
+  Widget _buildOfferSection() {
+    final user =
+        _supabase.auth.currentUser;
+
+    if (user == null) {
+      return const SizedBox.shrink();
+    }
+
+    if (_requesterId == user.id) {
+      return const SizedBox.shrink();
+    }
+
+    if (_status.toLowerCase() != 'open' &&
+        _status.toLowerCase() != 'pending' &&
+        _status.toLowerCase() != 'active') {
+      return const SizedBox.shrink();
+    }
+
+    if (_hasOfferedHelp) {
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(18),
+        decoration: BoxDecoration(
+          color: const Color(0xFF007749)
+              .withAlpha(12),
+          borderRadius:
+              BorderRadius.circular(18),
+          border: Border.all(
+            color: const Color(0xFF007749)
+                .withAlpha(45),
+          ),
+        ),
+        child: const Row(
+          children: [
+            Icon(
+              Icons.check_circle_outline,
+              color: Color(0xFF007749),
+              size: 26,
+            ),
+            SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                'Your offer to help has been sent. The requester can now review your offer.',
+                style: TextStyle(
+                  fontSize: 14,
+                  height: 1.4,
+                  color: Color(0xFF005A38),
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius:
+            BorderRadius.circular(20),
+        border: Border.all(
+          color: const Color(0xFFE6E7E8),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment:
+            CrossAxisAlignment.start,
+        children: [
+          const Row(
+            children: [
+              Icon(
+                Icons.handshake_outlined,
+                color: Color(0xFF007749),
+                size: 25,
+              ),
+              SizedBox(width: 10),
+              Text(
+                'Can you help?',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight:
+                      FontWeight.w800,
+                  color: Color(0xFF111827),
+                ),
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 8),
+
+          const Text(
+            'Let the requester know how you can assist.',
+            style: TextStyle(
+              fontSize: 13,
+              color: Color(0xFF69707A),
+            ),
+          ),
+
+          const SizedBox(height: 15),
+
+          TextField(
+            controller: _messageController,
+            maxLines: 4,
+            maxLength: 500,
+            decoration:
+                InputDecoration(
+              hintText:
+                  'Describe how you can help...',
+              filled: true,
+              fillColor:
+                  const Color(0xFFF8F9FA),
+              border:
+                  OutlineInputBorder(
+                borderRadius:
+                    BorderRadius.circular(
+                  14,
+                ),
+                borderSide: BorderSide.none,
+              ),
+              focusedBorder:
+                  OutlineInputBorder(
+                borderRadius:
+                    BorderRadius.circular(
+                  14,
+                ),
+                borderSide:
+                    const BorderSide(
+                  color:
+                      Color(0xFF007749),
+                  width: 2,
+                ),
+              ),
+            ),
+          ),
+
+          const SizedBox(height: 8),
+
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton.icon(
+              style:
+                  FilledButton.styleFrom(
+                backgroundColor:
+                    const Color(0xFF007749),
+                foregroundColor:
+                    Colors.white,
+                padding:
+                    const EdgeInsets.symmetric(
+                  vertical: 14,
+                ),
+                shape:
+                    RoundedRectangleBorder(
+                  borderRadius:
+                      BorderRadius.circular(
+                    14,
+                  ),
+                ),
+              ),
+              onPressed:
+                  _isSubmittingOffer
+                      ? null
+                      : _offerHelp,
+              icon:
+                  _isSubmittingOffer
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child:
+                              CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color:
+                                Colors.white,
+                          ),
+                        )
+                      : const Icon(
+                          Icons.handshake,
+                        ),
+              label: Text(
+                _isSubmittingOffer
+                    ? 'SENDING...'
+                    : 'OFFER TO HELP',
+                style: const TextStyle(
+                  fontWeight:
+                      FontWeight.w800,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ============================================================
+  // BUILD
+  // ============================================================
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor:
+          const Color(0xFFF7F7F4),
+
+      appBar: AppBar(
+        backgroundColor:
+            const Color(0xFFF7F7F4),
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        title: const Text(
+          'Help Request',
+          style: TextStyle(
+            fontWeight: FontWeight.w800,
+            color: Color(0xFF111827),
+          ),
+        ),
+        iconTheme: const IconThemeData(
+          color: Color(0xFF111827),
+        ),
+      ),
+
+      body: SafeArea(
+        child: RefreshIndicator(
+          color: const Color(0xFF007749),
+          onRefresh: _loadOffers,
+          child: ListView(
+            physics:
+                const AlwaysScrollableScrollPhysics(),
+            padding:
+                const EdgeInsets.fromLTRB(
+              18,
+              8,
+              18,
+              32,
+            ),
+            children: [
+              _buildRequestHeader(),
+
+              const SizedBox(height: 18),
+
+              _buildOfferSection(),
+
+              const SizedBox(height: 24),
+
+              Row(
+                children: [
+                  const Expanded(
+                    child: Text(
+                      'People Who Can Help',
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight:
+                            FontWeight.w900,
+                        color:
+                            Color(0xFF111827),
+                      ),
+                    ),
+                  ),
+                  if (_offers.isNotEmpty)
+                    Container(
+                      padding:
+                          const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 5,
+                      ),
+                      decoration:
+                          BoxDecoration(
+                        color: const Color(
+                          0xFF007749,
+                        ).withAlpha(18),
+                        borderRadius:
+                            BorderRadius.circular(
+                          20,
+                        ),
+                      ),
+                      child: Text(
+                        '${_offers.length}',
+                        style: const TextStyle(
+                          color:
+                              Color(0xFF007749),
+                          fontWeight:
+                              FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+
+              const SizedBox(height: 12),
+
+              if (_isLoadingOffers)
+                const Padding(
+                  padding:
+                      EdgeInsets.symmetric(
+                    vertical: 30,
+                  ),
+                  child: Center(
+                    child:
+                        CircularProgressIndicator(
+                      color:
+                          Color(0xFF007749),
+                    ),
+                  ),
+                )
+              else if (_offers.isEmpty)
+                Container(
+                  width: double.infinity,
+                  padding:
+                      const EdgeInsets.all(24),
+                  decoration:
+                      BoxDecoration(
+                    color: Colors.white,
+                    borderRadius:
+                        BorderRadius.circular(
+                      18,
+                    ),
+                    border: Border.all(
+                      color:
+                          Color(0xFFE6E7E8),
+                    ),
+                  ),
+                  child: const Column(
+                    children: [
+                      Icon(
+                        Icons.people_outline,
+                        size: 44,
+                        color:
+                            Color(0xFF9CA3AF),
+                      ),
+                      SizedBox(height: 10),
+                      Text(
+                        'No offers yet',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight:
+                              FontWeight.w800,
+                          color:
+                              Color(0xFF374151),
+                        ),
+                      ),
+                      SizedBox(height: 5),
+                      Text(
+                        'Be the first person to offer help.',
+                        textAlign:
+                            TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 13,
+                          color:
+                              Color(0xFF69707A),
+                        ),
+                      ),
+                    ],
+                  ),
+                )
+              else
+                ..._offers.map(
+                  _buildOfferCard,
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Compatibility class for older navigation
+/// references that may still use the plural name.
+class HelpRequestDetailsScreen
+    extends HelpRequestDetailScreen {
+  const HelpRequestDetailsScreen({
+    super.key,
+    required super.request,
+  });
 }
