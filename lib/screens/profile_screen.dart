@@ -1,429 +1,417 @@
-import 'package:flutter/material.dart';
+import 'dart:typed_data';
 
-class ProfileScreen extends StatelessWidget {
+import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+
+class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
 
-  static const Color _green = Color(0xFF1B7A4A);
-  static const Color _muted = Color(0xFF6B7280);
-  static const Color _border = Color(0xFFE5E7EB);
+  @override
+  State<ProfileScreen> createState() =>
+      _ProfileScreenState();
+}
+
+class _ProfileScreenState
+    extends State<ProfileScreen> {
+  final supabase = Supabase.instance.client;
+
+  final ImagePicker imagePicker =
+      ImagePicker();
+
+  final TextEditingController nameController =
+      TextEditingController();
+
+  String? avatarUrl;
+
+  bool isLoading = true;
+  bool isSaving = false;
+  bool isUploading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    loadProfile();
+  }
+
+  Future<void> loadProfile() async {
+    try {
+      final user = supabase.auth.currentUser;
+
+      if (user == null) {
+        return;
+      }
+
+      final data = await supabase
+          .from('profiles')
+          .select()
+          .eq('id', user.id)
+          .maybeSingle();
+
+      if (!mounted) return;
+
+      if (data != null) {
+        nameController.text =
+            data['full_name']?.toString() ?? '';
+
+        avatarUrl =
+            data['avatar_url']?.toString();
+      } else {
+        nameController.text =
+            user.email?.split('@').first ?? '';
+      }
+
+      setState(() {
+        isLoading = false;
+      });
+    } catch (error) {
+      debugPrint(
+        'Error loading profile: $error',
+      );
+
+      if (mounted) {
+        setState(() {
+          isLoading = false;
+        });
+      }
+    }
+  }
+
+  Future<void> pickAndUploadImage() async {
+    try {
+      final user = supabase.auth.currentUser;
+
+      if (user == null) return;
+
+      final XFile? image =
+          await imagePicker.pickImage(
+        source: ImageSource.gallery,
+        imageQuality: 80,
+        maxWidth: 1200,
+      );
+
+      if (image == null) return;
+
+      setState(() {
+        isUploading = true;
+      });
+
+      final Uint8List imageBytes =
+          await image.readAsBytes();
+
+      final String fileExtension =
+          image.name.contains('.')
+              ? image.name.split('.').last
+              : 'jpg';
+
+      final String filePath =
+          '${user.id}/avatar_${DateTime.now().millisecondsSinceEpoch}.$fileExtension';
+
+      await supabase.storage
+          .from('profile-photos')
+          .uploadBinary(
+            filePath,
+            imageBytes,
+            fileOptions: FileOptions(
+              contentType:
+                  'image/$fileExtension',
+              upsert: true,
+            ),
+          );
+
+      final String publicUrl = supabase
+          .storage
+          .from('profile-photos')
+          .getPublicUrl(filePath);
+
+      await supabase
+          .from('profiles')
+          .upsert({
+            'id': user.id,
+            'full_name':
+                nameController.text.trim(),
+            'avatar_url': publicUrl,
+            'updated_at':
+                DateTime.now().toIso8601String(),
+          });
+
+      if (!mounted) return;
+
+      setState(() {
+        avatarUrl = publicUrl;
+        isUploading = false;
+      });
+
+      ScaffoldMessenger.of(context)
+          .showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Profile picture updated successfully',
+          ),
+        ),
+      );
+    } catch (error) {
+      debugPrint(
+        'Error uploading profile image: $error',
+      );
+
+      if (mounted) {
+        setState(() {
+          isUploading = false;
+        });
+
+        ScaffoldMessenger.of(context)
+            .showSnackBar(
+          SnackBar(
+            content: Text(
+              'Failed to upload image: $error',
+            ),
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> saveProfile() async {
+    try {
+      final user = supabase.auth.currentUser;
+
+      if (user == null) return;
+
+      final name =
+          nameController.text.trim();
+
+      if (name.isEmpty) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Please enter your name',
+            ),
+          ),
+        );
+
+        return;
+      }
+
+      setState(() {
+        isSaving = true;
+      });
+
+      await supabase
+          .from('profiles')
+          .upsert({
+            'id': user.id,
+            'full_name': name,
+            'avatar_url': avatarUrl,
+            'updated_at':
+                DateTime.now().toIso8601String(),
+          });
+
+      if (!mounted) return;
+
+      setState(() {
+        isSaving = false;
+      });
+
+      ScaffoldMessenger.of(context)
+          .showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Profile updated successfully',
+          ),
+        ),
+      );
+
+      Navigator.pop(context);
+    } catch (error) {
+      debugPrint(
+        'Error saving profile: $error',
+      );
+
+      if (mounted) {
+        setState(() {
+          isSaving = false;
+        });
+
+        ScaffoldMessenger.of(context)
+            .showSnackBar(
+          SnackBar(
+            content: Text(
+              'Failed to update profile: $error',
+            ),
+          ),
+        );
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    nameController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
-    return SafeArea(
-      child: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          const SizedBox(height: 8),
+    final user =
+        supabase.auth.currentUser;
 
-          // PROFILE HEADER
-          Card(
-            elevation: 0,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16),
-              side: const BorderSide(color: _border),
-            ),
-            child: Padding(
-              padding: const EdgeInsets.all(20),
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text(
+          'My Profile',
+        ),
+      ),
+      body: isLoading
+          ? const Center(
+              child:
+                  CircularProgressIndicator(),
+            )
+          : SingleChildScrollView(
+              padding:
+                  const EdgeInsets.all(24),
               child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Row(
-                    children: [
-                      const CircleAvatar(
-                        radius: 34,
-                        backgroundColor: _green,
-                        child: Text(
-                          'H',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 28,
-                            fontWeight: FontWeight.w800,
+                  GestureDetector(
+                    onTap: isUploading
+                        ? null
+                        : pickAndUploadImage,
+                    child: Stack(
+                      children: [
+                        CircleAvatar(
+                          radius: 65,
+                          backgroundImage:
+                              avatarUrl != null &&
+                                      avatarUrl!
+                                          .isNotEmpty
+                                  ? NetworkImage(
+                                      avatarUrl!,
+                                    )
+                                  : null,
+                          child: avatarUrl == null ||
+                                  avatarUrl!
+                                      .isEmpty
+                              ? const Icon(
+                                  Icons.person,
+                                  size: 65,
+                                )
+                              : null,
+                        ),
+
+                        Positioned(
+                          right: 0,
+                          bottom: 0,
+                          child: CircleAvatar(
+                            radius: 22,
+                            child: isUploading
+                                ? const SizedBox(
+                                    width: 20,
+                                    height: 20,
+                                    child:
+                                        CircularProgressIndicator(
+                                      strokeWidth:
+                                          2,
+                                    ),
+                                  )
+                                : const Icon(
+                                    Icons.camera_alt,
+                                  ),
                           ),
                         ),
-                      ),
-                      const SizedBox(width: 16),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Community Member',
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .titleLarge
-                                  ?.copyWith(
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                            ),
-                            const SizedBox(height: 4),
-                            const Text(
-                              'Johannesburg, Gauteng',
-                              style: TextStyle(
-                                color: _muted,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      IconButton(
-                        onPressed: () {
-                          _showComingSoon(
-                            context,
-                            'Profile editing will be available soon.',
-                          );
-                        },
-                        icon: const Icon(Icons.edit_outlined),
-                        tooltip: 'Edit profile',
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
+
+                  const SizedBox(height: 15),
+
+                  TextButton.icon(
+                    onPressed: isUploading
+                        ? null
+                        : pickAndUploadImage,
+                    icon: const Icon(
+                      Icons.photo_library,
+                    ),
+                    label: const Text(
+                      'Upload Profile Picture',
+                    ),
+                  ),
+
+                  const SizedBox(height: 30),
+
+                  TextField(
+                    controller: nameController,
+                    textCapitalization:
+                        TextCapitalization.words,
+                    decoration:
+                        const InputDecoration(
+                      labelText:
+                          'Display Name',
+                      hintText:
+                          'Enter your full name',
+                      prefixIcon:
+                          Icon(Icons.person_outline),
+                      border:
+                          OutlineInputBorder(),
+                    ),
+                  ),
+
                   const SizedBox(height: 20),
-                  const Divider(color: _border),
-                  const SizedBox(height: 12),
+
+                  TextField(
+                    readOnly: true,
+                    controller:
+                        TextEditingController(
+                      text: user?.email ?? '',
+                    ),
+                    decoration:
+                        const InputDecoration(
+                      labelText: 'Email',
+                      prefixIcon:
+                          Icon(Icons.email_outlined),
+                      border:
+                          OutlineInputBorder(),
+                    ),
+                  ),
+
+                  const SizedBox(height: 35),
+
+                  SizedBox(
+                    width: double.infinity,
+                    height: 52,
+                    child: ElevatedButton(
+                      onPressed:
+                          isSaving
+                              ? null
+                              : saveProfile,
+                      child: isSaving
+                          ? const SizedBox(
+                              width: 24,
+                              height: 24,
+                              child:
+                                  CircularProgressIndicator(
+                                strokeWidth: 2,
+                              ),
+                            )
+                          : const Text(
+                              'Save Profile',
+                            ),
+                    ),
+                  ),
+
+                  const SizedBox(height: 20),
+
                   const Text(
-                    'Your Sisonke community profile',
+                    'Your display name and profile picture can be used to identify you to other Sisonke users.',
+                    textAlign:
+                        TextAlign.center,
                     style: TextStyle(
-                      color: _muted,
-                      fontSize: 14,
+                      fontSize: 13,
                     ),
                   ),
                 ],
               ),
             ),
-          ),
-
-          const SizedBox(height: 28),
-
-          // IMPACT SECTION
-          Text(
-            'My Sisonke Impact',
-            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                  fontWeight: FontWeight.w700,
-                ),
-          ),
-
-          const SizedBox(height: 14),
-
-          GridView.count(
-            crossAxisCount: 2,
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            crossAxisSpacing: 12,
-            mainAxisSpacing: 12,
-            childAspectRatio: 1.45,
-            children: const [
-              _ImpactCard(
-                value: '12',
-                label: 'People helped',
-                icon: Icons.volunteer_activism_outlined,
-              ),
-              _ImpactCard(
-                value: '5',
-                label: 'Help received',
-                icon: Icons.favorite_outline,
-              ),
-              _ImpactCard(
-                value: '8',
-                label: 'Impact shared',
-                icon: Icons.share_outlined,
-              ),
-              _ImpactCard(
-                value: '4',
-                label: 'Actions joined',
-                icon: Icons.groups_outlined,
-              ),
-            ],
-          ),
-
-          const SizedBox(height: 28),
-
-          // ACCOUNT SECTION
-          Text(
-            'Account',
-            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                  fontWeight: FontWeight.w700,
-                ),
-          ),
-
-          const SizedBox(height: 14),
-
-          Card(
-            elevation: 0,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16),
-              side: const BorderSide(color: _border),
-            ),
-            child: Column(
-              children: [
-                _ProfileOption(
-                  icon: Icons.bookmark_border,
-                  title: 'Saved content',
-                  onTap: () {
-                    _showComingSoon(
-                      context,
-                      'Saved content will be available soon.',
-                    );
-                  },
-                ),
-                const Divider(height: 1, color: _border),
-                _ProfileOption(
-                  icon: Icons.settings_outlined,
-                  title: 'Settings',
-                  onTap: () {
-                    _showComingSoon(
-                      context,
-                      'Settings will be available soon.',
-                    );
-                  },
-                ),
-                const Divider(height: 1, color: _border),
-                _ProfileOption(
-                  icon: Icons.privacy_tip_outlined,
-                  title: 'Privacy & safety',
-                  onTap: () {
-                    _showComingSoon(
-                      context,
-                      'Privacy and safety settings will be available soon.',
-                    );
-                  },
-                ),
-              ],
-            ),
-          ),
-
-          const SizedBox(height: 28),
-
-          // COMMUNITY SECTION
-          Text(
-            'Community',
-            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                  fontWeight: FontWeight.w700,
-                ),
-          ),
-
-          const SizedBox(height: 14),
-
-          Card(
-            elevation: 0,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16),
-              side: const BorderSide(color: _border),
-            ),
-            child: Column(
-              children: [
-                _ProfileOption(
-                  icon: Icons.info_outline,
-                  title: 'About Sisonke',
-                  onTap: () {
-                    _showComingSoon(
-                      context,
-                      'About Sisonke will be available soon.',
-                    );
-                  },
-                ),
-                const Divider(height: 1, color: _border),
-                _ProfileOption(
-                  icon: Icons.help_outline,
-                  title: 'Help & support',
-                  onTap: () {
-                    _showComingSoon(
-                      context,
-                      'Help and support will be available soon.',
-                    );
-                  },
-                ),
-                const Divider(height: 1, color: _border),
-                _ProfileOption(
-                  icon: Icons.description_outlined,
-                  title: 'Terms & policies',
-                  onTap: () {
-                    _showComingSoon(
-                      context,
-                      'Terms and policies will be available soon.',
-                    );
-                  },
-                ),
-              ],
-            ),
-          ),
-
-          const SizedBox(height: 30),
-
-          OutlinedButton.icon(
-            onPressed: () {
-              _showSignOutDialog(context);
-            },
-            icon: const Icon(Icons.logout),
-            label: const Text('Sign out'),
-            style: OutlinedButton.styleFrom(
-              foregroundColor: Colors.red,
-              side: const BorderSide(
-                color: Colors.red,
-              ),
-              padding: const EdgeInsets.symmetric(
-                vertical: 16,
-              ),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-            ),
-          ),
-
-          const SizedBox(height: 32),
-        ],
-      ),
-    );
-  }
-
-  void _showComingSoon(
-    BuildContext context,
-    String message,
-  ) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-      ),
-    );
-  }
-
-  void _showSignOutDialog(BuildContext context) {
-    showDialog<void>(
-      context: context,
-      builder: (dialogContext) {
-        return AlertDialog(
-          title: const Text('Sign out?'),
-          content: const Text(
-            'Are you sure you want to sign out of Sisonke?',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () {
-                Navigator.of(dialogContext).pop();
-              },
-              child: const Text('Cancel'),
-            ),
-            TextButton(
-              onPressed: () {
-                Navigator.of(dialogContext).pop();
-
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text(
-                      'Sign out functionality will be connected soon.',
-                    ),
-                  ),
-                );
-              },
-              child: const Text(
-                'Sign out',
-                style: TextStyle(
-                  color: Colors.red,
-                ),
-              ),
-            ),
-          ],
-        );
-      },
-    );
-  }
-}
-
-class _ImpactCard extends StatelessWidget {
-  const _ImpactCard({
-    required this.value,
-    required this.label,
-    required this.icon,
-  });
-
-  final String value;
-  final String label;
-  final IconData icon;
-
-  static const Color _green = Color(0xFF1B7A4A);
-  static const Color _muted = Color(0xFF6B7280);
-  static const Color _border = Color(0xFFE5E7EB);
-
-  @override
-  Widget build(BuildContext context) {
-    return Card(
-      elevation: 0,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
-        side: const BorderSide(color: _border),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Row(
-          children: [
-            Icon(
-              icon,
-              color: _green,
-              size: 25,
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    value,
-                    style: const TextStyle(
-                      fontSize: 24,
-                      fontWeight: FontWeight.w800,
-                      color: _green,
-                    ),
-                  ),
-                  const SizedBox(height: 3),
-                  Text(
-                    label,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: _muted,
-                      fontSize: 12,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _ProfileOption extends StatelessWidget {
-  const _ProfileOption({
-    required this.icon,
-    required this.title,
-    required this.onTap,
-  });
-
-  final IconData icon;
-  final String title;
-  final VoidCallback onTap;
-
-  static const Color _green = Color(0xFF1B7A4A);
-
-  @override
-  Widget build(BuildContext context) {
-    return ListTile(
-      onTap: onTap,
-      leading: Icon(
-        icon,
-        color: _green,
-      ),
-      title: Text(
-        title,
-        style: const TextStyle(
-          fontWeight: FontWeight.w500,
-        ),
-      ),
-      trailing: const Icon(
-        Icons.chevron_right,
-      ),
     );
   }
 }
