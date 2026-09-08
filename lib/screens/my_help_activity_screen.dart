@@ -9,8 +9,7 @@ class MyHelpActivityScreen extends StatefulWidget {
       _MyHelpActivityScreenState();
 }
 
-class _MyHelpActivityScreenState
-    extends State<MyHelpActivityScreen>
+class _MyHelpActivityScreenState extends State<MyHelpActivityScreen>
     with SingleTickerProviderStateMixin {
   final SupabaseClient _supabase = Supabase.instance.client;
 
@@ -21,6 +20,7 @@ class _MyHelpActivityScreenState
 
   List<Map<String, dynamic>> _responsesToMyRequests = [];
   List<Map<String, dynamic>> _myResponses = [];
+  List<Map<String, dynamic>> _myRequests = [];
 
   final Set<String> _processingIds = {};
 
@@ -32,7 +32,7 @@ class _MyHelpActivityScreenState
     super.initState();
 
     _tabController = TabController(
-      length: 2,
+      length: 3,
       vsync: this,
     );
 
@@ -56,6 +56,7 @@ class _MyHelpActivityScreenState
       await Future.wait([
         _loadResponsesToMyRequests(),
         _loadMyResponses(),
+        _loadMyRequests(),
       ]);
 
       if (!mounted) return;
@@ -76,7 +77,28 @@ class _MyHelpActivityScreenState
   }
 
   // ============================================================
-  // LOAD RESPONSES RECEIVED
+  // LOAD MY REQUESTS
+  // ============================================================
+
+  Future<void> _loadMyRequests() async {
+    final user = _supabase.auth.currentUser;
+
+    if (user == null) {
+      _myRequests = [];
+      return;
+    }
+
+    final data = await _supabase
+        .from('help_requests')
+        .select()
+        .eq('user_id', user.id)
+        .order('created_at', ascending: false);
+
+    _myRequests = List<Map<String, dynamic>>.from(data);
+  }
+
+  // ============================================================
+  // LOAD RESPONSES TO MY REQUESTS
   // ============================================================
 
   Future<void> _loadResponsesToMyRequests() async {
@@ -91,13 +113,9 @@ class _MyHelpActivityScreenState
         .from('help_requests')
         .select()
         .eq('user_id', user.id)
-        .order(
-          'created_at',
-          ascending: false,
-        );
+        .order('created_at', ascending: false);
 
-    final requests =
-        List<Map<String, dynamic>>.from(requestData);
+    final requests = List<Map<String, dynamic>>.from(requestData);
 
     if (requests.isEmpty) {
       _responsesToMyRequests = [];
@@ -108,6 +126,11 @@ class _MyHelpActivityScreenState
         .map((request) => _safeText(request['id']))
         .where((id) => id.isNotEmpty)
         .toList();
+
+    if (requestIds.isEmpty) {
+      _responsesToMyRequests = [];
+      return;
+    }
 
     final requestsById = <String, Map<String, dynamic>>{};
 
@@ -122,47 +145,29 @@ class _MyHelpActivityScreenState
     final responseData = await _supabase
         .from('help_responses')
         .select()
-        .inFilter(
-          'request_id',
-          requestIds,
-        )
-        .order(
-          'created_at',
-          ascending: false,
-        );
+        .inFilter('request_id', requestIds)
+        .order('created_at', ascending: false);
 
-    final responses =
-        List<Map<String, dynamic>>.from(responseData);
+    final responses = List<Map<String, dynamic>>.from(responseData);
 
     final responderIds = responses
-        .map(
-          (response) =>
-              _safeText(response['responder_id']),
-        )
+        .map((response) => _safeText(response['responder_id']))
         .where((id) => id.isNotEmpty)
         .toSet()
         .toList();
 
-    final profilesById =
-        <String, Map<String, dynamic>>{};
+    final profilesById = <String, Map<String, dynamic>>{};
 
     if (responderIds.isNotEmpty) {
       final profileData = await _supabase
           .from('profiles')
-          .select(
-            'id, full_name, avatar_url',
-          )
-          .inFilter(
-            'id',
-            responderIds,
-          );
+          .select('id, full_name, avatar_url')
+          .inFilter('id', responderIds);
 
       for (final item in profileData) {
-        final profile =
-            Map<String, dynamic>.from(item);
+        final profile = Map<String, dynamic>.from(item);
 
-        final id =
-            _safeText(profile['id']);
+        final id = _safeText(profile['id']);
 
         if (id.isNotEmpty) {
           profilesById[id] = profile;
@@ -170,17 +175,14 @@ class _MyHelpActivityScreenState
       }
     }
 
-    final combined =
-        <Map<String, dynamic>>[];
+    final combined = <Map<String, dynamic>>[];
 
     for (final response in responses) {
       final request =
-          requestsById[
-              _safeText(response['request_id'])];
+          requestsById[_safeText(response['request_id'])];
 
       final profile =
-          profilesById[
-              _safeText(response['responder_id'])];
+          profilesById[_safeText(response['responder_id'])];
 
       combined.add({
         ...response,
@@ -220,17 +222,10 @@ class _MyHelpActivityScreenState
     final responseData = await _supabase
         .from('help_responses')
         .select()
-        .eq(
-          'responder_id',
-          user.id,
-        )
-        .order(
-          'created_at',
-          ascending: false,
-        );
+        .eq('responder_id', user.id)
+        .order('created_at', ascending: false);
 
-    final responses =
-        List<Map<String, dynamic>>.from(responseData);
+    final responses = List<Map<String, dynamic>>.from(responseData);
 
     if (responses.isEmpty) {
       _myResponses = [];
@@ -238,66 +233,52 @@ class _MyHelpActivityScreenState
     }
 
     final requestIds = responses
-        .map(
-          (response) =>
-              _safeText(response['request_id']),
-        )
+        .map((response) => _safeText(response['request_id']))
         .where((id) => id.isNotEmpty)
         .toSet()
         .toList();
 
+    if (requestIds.isEmpty) {
+      _myResponses = [];
+      return;
+    }
+
     final requestData = await _supabase
         .from('help_requests')
         .select()
-        .inFilter(
-          'id',
-          requestIds,
-        );
+        .inFilter('id', requestIds);
 
-    final requestsById =
-        <String, Map<String, dynamic>>{};
-
+    final requestsById = <String, Map<String, dynamic>>{};
     final ownerIds = <String>{};
 
     for (final item in requestData) {
-      final request =
-          Map<String, dynamic>.from(item);
+      final request = Map<String, dynamic>.from(item);
 
-      final requestId =
-          _safeText(request['id']);
+      final requestId = _safeText(request['id']);
 
       if (requestId.isNotEmpty) {
         requestsById[requestId] = request;
       }
 
-      final ownerId =
-          _safeText(request['user_id']);
+      final ownerId = _safeText(request['user_id']);
 
       if (ownerId.isNotEmpty) {
         ownerIds.add(ownerId);
       }
     }
 
-    final profilesById =
-        <String, Map<String, dynamic>>{};
+    final profilesById = <String, Map<String, dynamic>>{};
 
     if (ownerIds.isNotEmpty) {
       final profileData = await _supabase
           .from('profiles')
-          .select(
-            'id, full_name, avatar_url',
-          )
-          .inFilter(
-            'id',
-            ownerIds.toList(),
-          );
+          .select('id, full_name, avatar_url')
+          .inFilter('id', ownerIds.toList());
 
       for (final item in profileData) {
-        final profile =
-            Map<String, dynamic>.from(item);
+        final profile = Map<String, dynamic>.from(item);
 
-        final profileId =
-            _safeText(profile['id']);
+        final profileId = _safeText(profile['id']);
 
         if (profileId.isNotEmpty) {
           profilesById[profileId] = profile;
@@ -305,19 +286,14 @@ class _MyHelpActivityScreenState
       }
     }
 
-    final combined =
-        <Map<String, dynamic>>[];
+    final combined = <Map<String, dynamic>>[];
 
     for (final response in responses) {
       final request =
-          requestsById[
-              _safeText(response['request_id'])];
+          requestsById[_safeText(response['request_id'])];
 
-      final ownerId =
-          _safeText(request?['user_id']);
-
-      final owner =
-          profilesById[ownerId];
+      final ownerId = _safeText(request?['user_id']);
+      final owner = profilesById[ownerId];
 
       combined.add({
         ...response,
@@ -343,30 +319,23 @@ class _MyHelpActivityScreenState
   }
 
   // ============================================================
-  // ACCEPT / DECLINE RESPONSE
+  // ACCEPT / DECLINE
   // ============================================================
 
   Future<void> _updateResponseStatus({
     required Map<String, dynamic> response,
     required String newStatus,
   }) async {
-    final responseId =
-        _safeText(response['id']);
+    final responseId = _safeText(response['id']);
+    final responderId = _safeText(response['responder_id']);
 
-    final responderId =
-        _safeText(response['responder_id']);
-
-    final requestTitle =
-        _safeText(
+    final requestTitle = _safeText(
       response['request_title'],
       'your help request',
     );
 
-    if (responseId.isEmpty ||
-        responderId.isEmpty) {
-      _showError(
-        'Unable to process this response.',
-      );
+    if (responseId.isEmpty || responderId.isEmpty) {
+      _showError('Unable to process this response.');
       return;
     }
 
@@ -380,13 +349,9 @@ class _MyHelpActivityScreenState
           .update({
             'status': newStatus,
           })
-          .eq(
-            'id',
-            responseId,
-          );
+          .eq('id', responseId);
 
-      final isAccepted =
-          newStatus == 'accepted';
+      final isAccepted = newStatus == 'accepted';
 
       await _createNotification(
         userId: responderId,
@@ -402,13 +367,10 @@ class _MyHelpActivityScreenState
 
       if (!mounted) return;
 
-      ScaffoldMessenger.of(context)
-          .showSnackBar(
+      ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           backgroundColor:
-              isAccepted
-                  ? Colors.green
-                  : Colors.red,
+              isAccepted ? Colors.green : Colors.red,
           content: Text(
             isAccepted
                 ? 'Response accepted.'
@@ -417,15 +379,11 @@ class _MyHelpActivityScreenState
         ),
       );
     } catch (error) {
-      _showError(
-        'Unable to update response: $error',
-      );
+      _showError('Unable to update response: $error');
     } finally {
       if (mounted) {
         setState(() {
-          _processingIds.remove(
-            responseId,
-          );
+          _processingIds.remove(responseId);
         });
       }
     }
@@ -438,17 +396,11 @@ class _MyHelpActivityScreenState
   Future<void> _completeHelp(
     Map<String, dynamic> response,
   ) async {
-    final responseId =
-        _safeText(response['id']);
+    final responseId = _safeText(response['id']);
+    final requestId = _safeText(response['request_id']);
+    final responderId = _safeText(response['responder_id']);
 
-    final requestId =
-        _safeText(response['request_id']);
-
-    final responderId =
-        _safeText(response['responder_id']);
-
-    final requestTitle =
-        _safeText(
+    final requestTitle = _safeText(
       response['request_title'],
       'the help request',
     );
@@ -456,9 +408,7 @@ class _MyHelpActivityScreenState
     if (responseId.isEmpty ||
         requestId.isEmpty ||
         responderId.isEmpty) {
-      _showError(
-        'Unable to complete this help activity.',
-      );
+      _showError('Unable to complete this help activity.');
       return;
     }
 
@@ -467,29 +417,20 @@ class _MyHelpActivityScreenState
     });
 
     try {
-      // Mark accepted response as completed.
       await _supabase
           .from('help_responses')
           .update({
             'status': 'completed',
           })
-          .eq(
-            'id',
-            responseId,
-          );
+          .eq('id', responseId);
 
-      // Mark Help Request as completed.
       await _supabase
           .from('help_requests')
           .update({
             'status': 'completed',
           })
-          .eq(
-            'id',
-            requestId,
-          );
+          .eq('id', requestId);
 
-      // Notify helper.
       await _createNotification(
         userId: responderId,
         title: 'Help completed successfully',
@@ -501,26 +442,95 @@ class _MyHelpActivityScreenState
 
       if (!mounted) return;
 
-      ScaffoldMessenger.of(context)
-          .showSnackBar(
+      ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          backgroundColor:
-              Colors.blue,
-          content: Text(
-            'Help marked as completed.',
-          ),
+          backgroundColor: Colors.blue,
+          content: Text('Help marked as completed.'),
         ),
       );
     } catch (error) {
-      _showError(
-        'Unable to complete help: $error',
-      );
+      _showError('Unable to complete help: $error');
     } finally {
       if (mounted) {
         setState(() {
-          _processingIds.remove(
-            responseId,
-          );
+          _processingIds.remove(responseId);
+        });
+      }
+    }
+  }
+
+  // ============================================================
+  // CANCEL REQUEST
+  // ============================================================
+
+  Future<void> _cancelRequest(
+    Map<String, dynamic> request,
+  ) async {
+    final requestId = _safeText(request['id']);
+
+    final requestTitle = _safeText(
+      request['title'],
+      'this help request',
+    );
+
+    if (requestId.isEmpty) {
+      _showError('Unable to cancel this request.');
+      return;
+    }
+
+    setState(() {
+      _processingIds.add(requestId);
+    });
+
+    try {
+      // 1. Find all people who responded.
+      final responseData = await _supabase
+          .from('help_responses')
+          .select('responder_id')
+          .eq('request_id', requestId);
+
+      final responses =
+          List<Map<String, dynamic>>.from(responseData);
+
+      // 2. Mark request as cancelled.
+      await _supabase
+          .from('help_requests')
+          .update({
+            'status': 'cancelled',
+          })
+          .eq('id', requestId);
+
+      // 3. Notify everyone who responded.
+      final responderIds = responses
+          .map((response) => _safeText(response['responder_id']))
+          .where((id) => id.isNotEmpty)
+          .toSet();
+
+      for (final responderId in responderIds) {
+        await _createNotification(
+          userId: responderId,
+          title: 'Help Request Cancelled',
+          body:
+              'The request "$requestTitle" is no longer active. Thank you for your willingness to help a fellow South African.',
+        );
+      }
+
+      await _loadAllActivity();
+
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: Colors.orange,
+          content: Text('Help request cancelled.'),
+        ),
+      );
+    } catch (error) {
+      _showError('Unable to cancel request: $error');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _processingIds.remove(requestId);
         });
       }
     }
@@ -535,9 +545,7 @@ class _MyHelpActivityScreenState
     required String title,
     required String body,
   }) async {
-    await _supabase
-        .from('notifications')
-        .insert({
+    await _supabase.from('notifications').insert({
       'user_id': userId,
       'title': title,
       'body': body,
@@ -546,24 +554,21 @@ class _MyHelpActivityScreenState
   }
 
   // ============================================================
-  // CONFIRM ACTION
+  // CONFIRM ACCEPT / DECLINE
   // ============================================================
 
   Future<void> _confirmResponseAction({
     required Map<String, dynamic> response,
     required String newStatus,
   }) async {
-    final responderName =
-        _safeText(
+    final responderName = _safeText(
       response['responder_name'],
       'this member',
     );
 
-    final isAccepted =
-        newStatus == 'accepted';
+    final isAccepted = newStatus == 'accepted';
 
-    final confirmed =
-        await showDialog<bool>(
+    final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) {
         return AlertDialog(
@@ -580,32 +585,19 @@ class _MyHelpActivityScreenState
           actions: [
             TextButton(
               onPressed: () =>
-                  Navigator.pop(
-                context,
-                false,
-              ),
-              child:
-                  const Text('Cancel'),
+                  Navigator.pop(context, false),
+              child: const Text('Cancel'),
             ),
             ElevatedButton(
-              style:
-                  ElevatedButton.styleFrom(
+              style: ElevatedButton.styleFrom(
                 backgroundColor:
-                    isAccepted
-                        ? Colors.green
-                        : Colors.red,
-                foregroundColor:
-                    Colors.white,
+                    isAccepted ? Colors.green : Colors.red,
+                foregroundColor: Colors.white,
               ),
               onPressed: () =>
-                  Navigator.pop(
-                context,
-                true,
-              ),
+                  Navigator.pop(context, true),
               child: Text(
-                isAccepted
-                    ? 'Accept'
-                    : 'Decline',
+                isAccepted ? 'Accept' : 'Decline',
               ),
             ),
           ],
@@ -622,57 +614,39 @@ class _MyHelpActivityScreenState
   }
 
   // ============================================================
-  // CONFIRM COMPLETE
+  // CONFIRM COMPLETE HELP
   // ============================================================
 
   Future<void> _confirmCompleteHelp(
     Map<String, dynamic> response,
   ) async {
-    final responderName =
-        _safeText(
+    final responderName = _safeText(
       response['responder_name'],
       'this member',
     );
 
-    final confirmed =
-        await showDialog<bool>(
+    final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) {
         return AlertDialog(
-          title: const Text(
-            'Complete Help?',
-          ),
+          title: const Text('Complete Help?'),
           content: Text(
             'Has $responderName successfully completed the assistance?',
           ),
           actions: [
             TextButton(
               onPressed: () =>
-                  Navigator.pop(
-                context,
-                false,
-              ),
-              child:
-                  const Text(
-                'Not Yet',
-              ),
+                  Navigator.pop(context, false),
+              child: const Text('Not Yet'),
             ),
             ElevatedButton(
-              style:
-                  ElevatedButton.styleFrom(
-                backgroundColor:
-                    Colors.blue,
-                foregroundColor:
-                    Colors.white,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.blue,
+                foregroundColor: Colors.white,
               ),
               onPressed: () =>
-                  Navigator.pop(
-                context,
-                true,
-              ),
-              child: const Text(
-                'Complete Help',
-              ),
+                  Navigator.pop(context, true),
+              child: const Text('Complete Help'),
             ),
           ],
         );
@@ -685,19 +659,62 @@ class _MyHelpActivityScreenState
   }
 
   // ============================================================
+  // CONFIRM CANCEL REQUEST
+  // ============================================================
+
+  Future<void> _confirmCancelRequest(
+    Map<String, dynamic> request,
+  ) async {
+    final requestTitle = _safeText(
+      request['title'],
+      'this help request',
+    );
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Cancel Help Request?'),
+          content: Text(
+            'Are you sure you want to cancel "$requestTitle"? '
+            'People who have already responded will be notified.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () =>
+                  Navigator.pop(context, false),
+              child: const Text('Keep Request'),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.red,
+                foregroundColor: Colors.white,
+              ),
+              onPressed: () =>
+                  Navigator.pop(context, true),
+              child: const Text('Cancel Request'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirmed == true) {
+      await _cancelRequest(request);
+    }
+  }
+
+  // ============================================================
   // REALTIME
   // ============================================================
 
   void _listenForChanges() {
-    final user =
-        _supabase.auth.currentUser;
+    final user = _supabase.auth.currentUser;
 
     if (user == null) return;
 
     _responsesChannel = _supabase
-        .channel(
-          'my-help-responses-${user.id}',
-        )
+        .channel('my-help-responses-${user.id}')
         .onPostgresChanges(
           event: PostgresChangeEvent.all,
           schema: 'public',
@@ -709,9 +726,7 @@ class _MyHelpActivityScreenState
         .subscribe();
 
     _requestsChannel = _supabase
-        .channel(
-          'my-help-requests-${user.id}',
-        )
+        .channel('my-help-requests-${user.id}')
         .onPostgresChanges(
           event: PostgresChangeEvent.all,
           schema: 'public',
@@ -735,76 +750,37 @@ class _MyHelpActivityScreenState
       return fallback;
     }
 
-    final text =
-        value.toString().trim();
+    final text = value.toString().trim();
 
-    if (text.isEmpty ||
-        text == 'null') {
+    if (text.isEmpty || text == 'null') {
       return fallback;
     }
 
     return text;
   }
 
-  String _formatDate(
-    dynamic value,
-  ) {
-    if (value == null) {
-      return 'Recently';
-    }
-
-    try {
-      final date =
-          DateTime.parse(
-        value.toString(),
-      );
-
-      final difference =
-          DateTime.now().difference(
-        date,
-      );
-
-      if (difference.inMinutes < 1) {
-        return 'Just now';
-      }
-
-      if (difference.inMinutes < 60) {
-        return '${difference.inMinutes}m ago';
-      }
-
-      if (difference.inHours < 24) {
-        return '${difference.inHours}h ago';
-      }
-
-      if (difference.inDays == 1) {
-        return 'Yesterday';
-      }
-
-      if (difference.inDays < 7) {
-        return '${difference.inDays} days ago';
-      }
-
-      return '${date.day.toString().padLeft(2, '0')}/'
-          '${date.month.toString().padLeft(2, '0')}/'
-          '${date.year}';
-    } catch (_) {
-      return 'Recently';
-    }
-  }
-
   Color _statusColor(
     String status,
   ) {
-    switch (
-        status.toLowerCase()) {
+    switch (status.toLowerCase()) {
       case 'accepted':
         return Colors.green;
+
       case 'completed':
         return Colors.blue;
+
       case 'declined':
         return Colors.red;
+
+      case 'cancelled':
+        return Colors.grey;
+
       case 'pending':
         return Colors.orange;
+
+      case 'open':
+        return Colors.green;
+
       default:
         return Colors.grey;
     }
@@ -814,22 +790,14 @@ class _MyHelpActivityScreenState
     await _loadAllActivity();
   }
 
-  void _showError(
-    String message,
-  ) {
+  void _showError(String message) {
     if (!mounted) return;
 
-    ScaffoldMessenger.of(context)
-        .showSnackBar(
+    ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content:
-            Text(message),
-        backgroundColor:
-            Colors.red,
-        duration:
-            const Duration(
-          seconds: 5,
-        ),
+        content: Text(message),
+        backgroundColor: Colors.red,
+        duration: const Duration(seconds: 5),
       ),
     );
   }
@@ -839,15 +807,11 @@ class _MyHelpActivityScreenState
     _tabController.dispose();
 
     if (_responsesChannel != null) {
-      _supabase.removeChannel(
-        _responsesChannel!,
-      );
+      _supabase.removeChannel(_responsesChannel!);
     }
 
     if (_requestsChannel != null) {
-      _supabase.removeChannel(
-        _requestsChannel!,
-      );
+      _supabase.removeChannel(_requestsChannel!);
     }
 
     super.dispose();
@@ -858,61 +822,56 @@ class _MyHelpActivityScreenState
   // ============================================================
 
   @override
-  Widget build(
-    BuildContext context,
-  ) {
+  Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor:
-          const Color(0xFFF6F7FB),
+      backgroundColor: const Color(0xFFF6F7FB),
       appBar: AppBar(
-        title: const Text(
-          'My Help Activity',
-        ),
+        title: const Text('My Help Activity'),
         bottom: TabBar(
-          controller:
-              _tabController,
+          controller: _tabController,
+          isScrollable: true,
           tabs: const [
             Tab(
-              icon: Icon(
-                Icons.inbox_outlined,
-              ),
+              icon: Icon(Icons.inbox_outlined),
               text: 'Received',
             ),
             Tab(
-              icon: Icon(
-                Icons.volunteer_activism,
-              ),
+              icon: Icon(Icons.volunteer_activism),
               text: 'My Responses',
+            ),
+            Tab(
+              icon: Icon(Icons.list_alt),
+              text: 'My Requests',
             ),
           ],
         ),
       ),
       body: _isLoading
           ? const Center(
-              child:
-                  CircularProgressIndicator(),
+              child: CircularProgressIndicator(),
             )
           : _errorMessage != null
               ? _buildErrorState()
               : TabBarView(
-                  controller:
-                      _tabController,
+                  controller: _tabController,
                   children: [
                     _buildReceivedTab(),
                     _buildMyResponsesTab(),
+                    _buildMyRequestsTab(),
                   ],
                 ),
     );
   }
 
+  // ============================================================
+  // RECEIVED TAB
+  // ============================================================
+
   Widget _buildReceivedTab() {
-    if (_responsesToMyRequests
-        .isEmpty) {
+    if (_responsesToMyRequests.isEmpty) {
       return _buildEmptyState(
-        icon:
-            Icons.inbox_outlined,
-        title:
-            'No responses yet',
+        icon: Icons.inbox_outlined,
+        title: 'No responses yet',
         message:
             'Responses to your Help Requests will appear here.',
       );
@@ -921,29 +880,26 @@ class _MyHelpActivityScreenState
     return RefreshIndicator(
       onRefresh: _refresh,
       child: ListView.builder(
-        padding:
-            const EdgeInsets.all(16),
-        itemCount:
-            _responsesToMyRequests
-                .length,
-        itemBuilder:
-            (context, index) {
+        padding: const EdgeInsets.all(16),
+        itemCount: _responsesToMyRequests.length,
+        itemBuilder: (context, index) {
           return _buildReceivedCard(
-            _responsesToMyRequests[
-                index],
+            _responsesToMyRequests[index],
           );
         },
       ),
     );
   }
 
+  // ============================================================
+  // MY RESPONSES TAB
+  // ============================================================
+
   Widget _buildMyResponsesTab() {
     if (_myResponses.isEmpty) {
       return _buildEmptyState(
-        icon:
-            Icons.volunteer_activism,
-        title:
-            'No responses yet',
+        icon: Icons.volunteer_activism,
+        title: 'No responses yet',
         message:
             'Your offers to help will appear here.',
       );
@@ -952,12 +908,9 @@ class _MyHelpActivityScreenState
     return RefreshIndicator(
       onRefresh: _refresh,
       child: ListView.builder(
-        padding:
-            const EdgeInsets.all(16),
-        itemCount:
-            _myResponses.length,
-        itemBuilder:
-            (context, index) {
+        padding: const EdgeInsets.all(16),
+        itemCount: _myResponses.length,
+        itemBuilder: (context, index) {
           return _buildMyResponseCard(
             _myResponses[index],
           );
@@ -967,182 +920,147 @@ class _MyHelpActivityScreenState
   }
 
   // ============================================================
-  // RECEIVED CARD
+  // MY REQUESTS TAB
+  // ============================================================
+
+  Widget _buildMyRequestsTab() {
+    if (_myRequests.isEmpty) {
+      return _buildEmptyState(
+        icon: Icons.list_alt,
+        title: 'No Help Requests',
+        message:
+            'The Help Requests you create will appear here.',
+      );
+    }
+
+    return RefreshIndicator(
+      onRefresh: _refresh,
+      child: ListView.builder(
+        padding: const EdgeInsets.all(16),
+        itemCount: _myRequests.length,
+        itemBuilder: (context, index) {
+          return _buildMyRequestCard(
+            _myRequests[index],
+          );
+        },
+      ),
+    );
+  }
+
+  // ============================================================
+  // RECEIVED RESPONSE CARD
   // ============================================================
 
   Widget _buildReceivedCard(
     Map<String, dynamic> response,
   ) {
-    final responderName =
-        _safeText(
+    final responderName = _safeText(
       response['responder_name'],
       'Sisonke Member',
     );
 
-    final requestTitle =
-        _safeText(
+    final requestTitle = _safeText(
       response['request_title'],
       'Help Request',
     );
 
-    final message =
-        _safeText(
+    final message = _safeText(
       response['message'],
       'No message provided.',
     );
 
-    final status =
-        _safeText(
+    final status = _safeText(
       response['status'],
       'pending',
     );
 
-    final responseId =
-        _safeText(
-      response['id'],
-    );
+    final responseId = _safeText(response['id']);
 
     final isProcessing =
-        _processingIds.contains(
-      responseId,
-    );
+        _processingIds.contains(responseId);
 
     return Card(
-      margin:
-          const EdgeInsets.only(
-        bottom: 14,
-      ),
+      margin: const EdgeInsets.only(bottom: 14),
       child: Padding(
-        padding:
-            const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(16),
         child: Column(
-          crossAxisAlignment:
-              CrossAxisAlignment.start,
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
               children: [
                 Expanded(
                   child: Text(
                     requestTitle,
-                    style:
-                        const TextStyle(
-                      fontWeight:
-                          FontWeight.bold,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
                       fontSize: 17,
                     ),
                   ),
                 ),
-                _buildStatusChip(
-                  status,
-                ),
+                _buildStatusChip(status),
               ],
             ),
-
-            const SizedBox(
-              height: 12,
-            ),
-
+            const SizedBox(height: 14),
             Text(
               responderName,
-              style:
-                  const TextStyle(
-                fontWeight:
-                    FontWeight.bold,
+              style: const TextStyle(
+                fontWeight: FontWeight.bold,
               ),
             ),
-
-            const SizedBox(
-              height: 8,
-            ),
-
+            const SizedBox(height: 8),
             Text(message),
-
-            const SizedBox(
-              height: 18,
-            ),
+            const SizedBox(height: 18),
 
             if (status == 'pending')
               Row(
                 children: [
                   Expanded(
-                    child:
-                        OutlinedButton(
-                      onPressed:
-                          isProcessing
-                              ? null
-                              : () {
-                                  _confirmResponseAction(
-                                    response:
-                                        response,
-                                    newStatus:
-                                        'declined',
-                                  );
-                                },
-                      child:
-                          const Text(
-                        'Decline',
-                      ),
+                    child: OutlinedButton(
+                      onPressed: isProcessing
+                          ? null
+                          : () {
+                              _confirmResponseAction(
+                                response: response,
+                                newStatus: 'declined',
+                              );
+                            },
+                      child: const Text('Decline'),
                     ),
                   ),
-                  const SizedBox(
-                    width: 10,
-                  ),
+                  const SizedBox(width: 10),
                   Expanded(
-                    child:
-                        ElevatedButton(
-                      onPressed:
-                          isProcessing
-                              ? null
-                              : () {
-                                  _confirmResponseAction(
-                                    response:
-                                        response,
-                                    newStatus:
-                                        'accepted',
-                                  );
-                                },
-                      child:
-                          const Text(
-                        'Accept',
-                      ),
+                    child: ElevatedButton(
+                      onPressed: isProcessing
+                          ? null
+                          : () {
+                              _confirmResponseAction(
+                                response: response,
+                                newStatus: 'accepted',
+                              );
+                            },
+                      child: const Text('Accept'),
                     ),
                   ),
                 ],
               ),
 
-            // COMPLETE HELP BUTTON
-            if (status == 'accepted') ...[
-              const SizedBox(
-                height: 8,
-              ),
+            if (status == 'accepted')
               SizedBox(
                 width: double.infinity,
-                child:
-                    ElevatedButton.icon(
-                  onPressed:
-                      isProcessing
-                          ? null
-                          : () {
-                              _confirmCompleteHelp(
-                                response,
-                              );
-                            },
-                  icon: const Icon(
-                    Icons.task_alt,
-                  ),
-                  label: const Text(
-                    'Complete Help',
-                  ),
-                  style:
-                      ElevatedButton.styleFrom(
-                    backgroundColor:
-                        Colors.blue,
-                    foregroundColor:
-                        Colors.white,
+                child: ElevatedButton.icon(
+                  onPressed: isProcessing
+                      ? null
+                      : () {
+                          _confirmCompleteHelp(response);
+                        },
+                  icon: const Icon(Icons.task_alt),
+                  label: const Text('Complete Help'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.blue,
+                    foregroundColor: Colors.white,
                   ),
                 ),
               ),
-            ],
           ],
         ),
       ),
@@ -1156,71 +1074,155 @@ class _MyHelpActivityScreenState
   Widget _buildMyResponseCard(
     Map<String, dynamic> response,
   ) {
-    final requestTitle =
-        _safeText(
+    final requestTitle = _safeText(
       response['request_title'],
       'Help Request',
     );
 
-    final ownerName =
-        _safeText(
-      response[
-          'request_owner_name'],
+    final ownerName = _safeText(
+      response['request_owner_name'],
       'Sisonke Member',
     );
 
-    final message =
-        _safeText(
+    final message = _safeText(
       response['message'],
       'No message provided.',
     );
 
-    final status =
-        _safeText(
+    final status = _safeText(
       response['status'],
       'pending',
     );
 
     return Card(
-      margin:
-          const EdgeInsets.only(
-        bottom: 14,
-      ),
+      margin: const EdgeInsets.only(bottom: 14),
       child: Padding(
-        padding:
-            const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(16),
         child: Column(
-          crossAxisAlignment:
-              CrossAxisAlignment.start,
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
               children: [
                 Expanded(
                   child: Text(
                     requestTitle,
-                    style:
-                        const TextStyle(
-                      fontWeight:
-                          FontWeight.bold,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
                       fontSize: 17,
                     ),
                   ),
                 ),
-                _buildStatusChip(
-                  status,
-                ),
+                _buildStatusChip(status),
               ],
             ),
-            const SizedBox(
-              height: 12,
-            ),
-            Text(
-              'Request owner: $ownerName',
-            ),
-            const SizedBox(
-              height: 8,
-            ),
+            const SizedBox(height: 12),
+            Text('Request owner: $ownerName'),
+            const SizedBox(height: 8),
             Text(message),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ============================================================
+  // MY REQUEST CARD
+  // ============================================================
+
+  Widget _buildMyRequestCard(
+    Map<String, dynamic> request,
+  ) {
+    final title = _safeText(
+      request['title'],
+      'Help Request',
+    );
+
+    final description = _safeText(
+      request['description'],
+      '',
+    );
+
+    final status = _safeText(
+      request['status'],
+      'open',
+    );
+
+    final requestId = _safeText(
+      request['id'],
+    );
+
+    final isProcessing =
+        _processingIds.contains(
+      requestId,
+    );
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 14),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    title,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 17,
+                    ),
+                  ),
+                ),
+                _buildStatusChip(status),
+              ],
+            ),
+            if (description.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              Text(description),
+            ],
+            const SizedBox(height: 18),
+
+            if (status == 'open')
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: isProcessing
+                      ? null
+                      : () {
+                          _confirmCancelRequest(
+                            request,
+                          );
+                        },
+                  icon: const Icon(
+                    Icons.cancel_outlined,
+                  ),
+                  label: const Text(
+                    'Cancel Request',
+                  ),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Colors.red,
+                  ),
+                ),
+              ),
+
+            if (status == 'completed')
+              const Text(
+                '✓ Help completed successfully',
+                style: TextStyle(
+                  color: Colors.blue,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+
+            if (status == 'cancelled')
+              const Text(
+                'This request was cancelled.',
+                style: TextStyle(
+                  color: Colors.grey,
+                  fontStyle: FontStyle.italic,
+                ),
+              ),
           ],
         ),
       ),
@@ -1234,31 +1236,23 @@ class _MyHelpActivityScreenState
   Widget _buildStatusChip(
     String status,
   ) {
-    final color =
-        _statusColor(status);
+    final color = _statusColor(status);
 
     return Container(
-      padding:
-          const EdgeInsets.symmetric(
+      padding: const EdgeInsets.symmetric(
         horizontal: 10,
         vertical: 5,
       ),
-      decoration:
-          BoxDecoration(
-        color:
-            color.withAlpha(25),
-        borderRadius:
-            BorderRadius.circular(
-          20,
-        ),
+      decoration: BoxDecoration(
+        color: color.withAlpha(25),
+        borderRadius: BorderRadius.circular(20),
       ),
       child: Text(
         status.toUpperCase(),
         style: TextStyle(
           color: color,
           fontSize: 10,
-          fontWeight:
-              FontWeight.bold,
+          fontWeight: FontWeight.bold,
         ),
       ),
     );
@@ -1277,40 +1271,28 @@ class _MyHelpActivityScreenState
       onRefresh: _refresh,
       child: ListView(
         children: [
-          const SizedBox(
-            height: 100,
-          ),
+          const SizedBox(height: 100),
           Icon(
             icon,
             size: 70,
             color: Colors.grey,
           ),
-          const SizedBox(
-            height: 20,
-          ),
+          const SizedBox(height: 20),
           Text(
             title,
-            textAlign:
-                TextAlign.center,
-            style:
-                const TextStyle(
+            textAlign: TextAlign.center,
+            style: const TextStyle(
               fontSize: 20,
-              fontWeight:
-                  FontWeight.bold,
+              fontWeight: FontWeight.bold,
             ),
           ),
-          const SizedBox(
-            height: 10,
-          ),
+          const SizedBox(height: 10),
           Padding(
             padding:
-                const EdgeInsets.symmetric(
-              horizontal: 30,
-            ),
+                const EdgeInsets.symmetric(horizontal: 30),
             child: Text(
               message,
-              textAlign:
-                  TextAlign.center,
+              textAlign: TextAlign.center,
             ),
           ),
         ],
@@ -1321,11 +1303,8 @@ class _MyHelpActivityScreenState
   Widget _buildErrorState() {
     return Center(
       child: ElevatedButton(
-        onPressed:
-            _loadAllActivity,
-        child: const Text(
-          'Try Again',
-        ),
+        onPressed: _loadAllActivity,
+        child: const Text('Try Again'),
       ),
     );
   }
