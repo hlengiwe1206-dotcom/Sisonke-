@@ -5,12 +5,11 @@ class NotificationsScreen extends StatefulWidget {
   const NotificationsScreen({super.key});
 
   @override
-  State<NotificationsScreen> createState() =>
-      _NotificationsScreenState();
+  State<NotificationsScreen> createState() => _NotificationsScreenState();
 }
 
 class _NotificationsScreenState extends State<NotificationsScreen> {
-  final SupabaseClient supabase = Supabase.instance.client;
+  final supabase = Supabase.instance.client;
 
   bool isLoading = true;
   List<Map<String, dynamic>> notifications = [];
@@ -27,7 +26,6 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
 
       if (user == null) {
         setState(() {
-          notifications = [];
           isLoading = false;
         });
         return;
@@ -39,27 +37,32 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
           .eq('user_id', user.id)
           .order('created_at', ascending: false);
 
-      if (!mounted) return;
-
       setState(() {
-        notifications =
-            List<Map<String, dynamic>>.from(data);
+        notifications = List<Map<String, dynamic>>.from(data);
         isLoading = false;
       });
     } catch (error) {
-      if (!mounted) return;
-
       setState(() {
         isLoading = false;
       });
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Unable to load notifications: $error',
-          ),
-        ),
-      );
+      debugPrint('Error loading notifications: $error');
+    }
+  }
+
+  Future<void> markAsRead(String notificationId) async {
+    try {
+      await supabase
+          .from('notifications')
+          .update({
+            'is_read': true,
+            'read_at': DateTime.now().toIso8601String(),
+          })
+          .eq('id', notificationId);
+
+      await loadNotifications();
+    } catch (error) {
+      debugPrint('Error marking notification as read: $error');
     }
   }
 
@@ -75,43 +78,61 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
             )
           : notifications.isEmpty
               ? const Center(
-                  child: Text('No notifications yet'),
+                  child: Text(
+                    'No notifications yet',
+                    style: TextStyle(fontSize: 16),
+                  ),
                 )
-              : ListView.separated(
-                  padding: const EdgeInsets.all(16),
-                  itemCount: notifications.length,
-                  separatorBuilder: (context, index) =>
-                      const SizedBox(height: 10),
-                  itemBuilder: (context, index) {
-                    final notification =
-                        notifications[index];
+              : RefreshIndicator(
+                  onRefresh: loadNotifications,
+                  child: ListView.separated(
+                    padding: const EdgeInsets.all(16),
+                    itemCount: notifications.length,
+                    separatorBuilder: (context, index) =>
+                        const SizedBox(height: 10),
+                    itemBuilder: (context, index) {
+                      final notification = notifications[index];
 
-                    final isRead =
-                        notification['is_read'] ?? false;
+                      final isRead =
+                          notification['is_read'] as bool? ?? false;
 
-                    return Card(
-                      child: ListTile(
-                        leading: CircleAvatar(
-                          child: Icon(
-                            isRead
-                                ? Icons.notifications_none
-                                : Icons.notifications,
+                      return Card(
+                        child: ListTile(
+                          leading: CircleAvatar(
+                            child: Icon(
+                              isRead
+                                  ? Icons.notifications_none
+                                  : Icons.notifications,
+                            ),
                           ),
-                        ),
-                        title: Text(
-                          notification['title'] ?? '',
-                          style: TextStyle(
-                            fontWeight: isRead
-                                ? FontWeight.normal
-                                : FontWeight.bold,
+                          title: Text(
+                            notification['title'] ?? 'Notification',
+                            style: TextStyle(
+                              fontWeight: isRead
+                                  ? FontWeight.normal
+                                  : FontWeight.bold,
+                            ),
                           ),
+                          subtitle: Text(
+                            notification['body'] ?? '',
+                          ),
+                          trailing: isRead
+                              ? null
+                              : const Icon(
+                                  Icons.circle,
+                                  size: 10,
+                                ),
+                          onTap: () {
+                            if (!isRead) {
+                              markAsRead(
+                                notification['id'].toString(),
+                              );
+                            }
+                          },
                         ),
-                        subtitle: Text(
-                          notification['body'] ?? '',
-                        ),
-                      ),
-                    );
-                  },
+                      );
+                    },
+                  ),
                 ),
     );
   }
