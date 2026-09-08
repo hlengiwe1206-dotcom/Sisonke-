@@ -33,15 +33,15 @@ class NotificationsScreen extends StatelessWidget {
                   .from('notifications')
                   .stream(primaryKey: ['id'])
                   .eq('user_id', userId),
-              builder: (
-                BuildContext context,
-                AsyncSnapshot<List<Map<String, dynamic>>> snapshot,
-              ) {
+              builder: (context, snapshot) {
                 if (snapshot.hasError) {
                   return Center(
-                    child: Text(
-                      'Error loading notifications:\n${snapshot.error}',
-                      textAlign: TextAlign.center,
+                    child: Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Text(
+                        'Error loading notifications:\n${snapshot.error}',
+                        textAlign: TextAlign.center,
+                      ),
                     ),
                   );
                 }
@@ -95,16 +95,10 @@ class NotificationsScreen extends StatelessWidget {
                 return ListView.separated(
                   padding: const EdgeInsets.all(12),
                   itemCount: notifications.length,
-                  separatorBuilder: (
-                    BuildContext context,
-                    int index,
-                  ) {
+                  separatorBuilder: (_, __) {
                     return const SizedBox(height: 8);
                   },
-                  itemBuilder: (
-                    BuildContext context,
-                    int index,
-                  ) {
+                  itemBuilder: (context, index) {
                     final notification = notifications[index];
 
                     final isUnread =
@@ -118,7 +112,7 @@ class NotificationsScreen extends StatelessWidget {
                       child: ListTile(
                         leading: CircleAvatar(
                           child: Icon(
-                            _getNotificationIcon(
+                            notificationIcon(
                               notification['type']?.toString(),
                             ),
                           ),
@@ -138,12 +132,11 @@ class NotificationsScreen extends StatelessWidget {
                           children: [
                             const SizedBox(height: 4),
                             Text(
-                              notification['body']?.toString() ??
-                                  '',
+                              notification['body']?.toString() ?? '',
                             ),
                             const SizedBox(height: 6),
                             Text(
-                              _formatDate(
+                              formatNotificationDate(
                                 notification['created_at'],
                               ),
                               style: TextStyle(
@@ -193,56 +186,56 @@ class NotificationsScreen extends StatelessWidget {
             ),
     );
   }
+}
 
-  IconData _getNotificationIcon(String? type) {
-    switch (type) {
-      case 'closing_date':
-      case 'deadline':
-        return Icons.schedule;
+IconData notificationIcon(String? type) {
+  switch (type) {
+    case 'closing_date':
+    case 'deadline':
+      return Icons.schedule;
 
-      case 'opportunity_match':
-      case 'personalised_match':
-        return Icons.auto_awesome;
+    case 'opportunity_match':
+    case 'personalised_match':
+      return Icons.auto_awesome;
 
-      case 'saved_opportunity':
-        return Icons.bookmark;
+    case 'saved_opportunity':
+      return Icons.bookmark;
 
-      case 'help_request':
-        return Icons.volunteer_activism;
+    case 'help_request':
+      return Icons.volunteer_activism;
 
-      case 'offer':
-        return Icons.handshake;
+    case 'offer':
+      return Icons.handshake;
 
-      case 'connection':
-        return Icons.people;
+    case 'connection':
+      return Icons.people;
 
-      case 'message':
-        return Icons.message;
+    case 'message':
+      return Icons.message;
 
-      default:
-        return Icons.notifications;
-    }
+    default:
+      return Icons.notifications;
+  }
+}
+
+String formatNotificationDate(dynamic date) {
+  if (date == null) {
+    return '';
   }
 
-  String _formatDate(dynamic date) {
-    if (date == null) {
-      return '';
-    }
+  final parsedDate = DateTime.tryParse(
+    date.toString(),
+  );
 
-    final parsedDate = DateTime.tryParse(
-      date.toString(),
-    );
-
-    if (parsedDate == null) {
-      return '';
-    }
-
-    final localDate = parsedDate.toLocal();
-
-    return '${localDate.day.toString().padLeft(2, '0')}/'
-        '${localDate.month.toString().padLeft(2, '0')}/'
-        '${localDate.year} '
-        '${localDate.hour.toString().padLeft(2, '0')}:'
-        '${localDate.minute.toString().padLeft(2, '0')}';
+  if (parsedDate == null) {
+    return '';
   }
+
+  final localDate = parsedDate.toLocal();
+
+  return '${localDate.day.toString().padLeft(2, '0')}/'
+      '${localDate.month.toString().padLeft(2, '0')}/'
+      '${localDate.year} '
+      '${localDate.hour.toString().padLeft(2, '0')}:'
+      '${localDate.minute.toString().padLeft(2, '0')}';
 } 
