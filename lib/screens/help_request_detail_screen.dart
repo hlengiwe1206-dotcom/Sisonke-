@@ -32,11 +32,20 @@ class _HelpRequestDetailScreenState
   bool _isSubmitting = false;
   bool _hasAlreadyResponded = false;
   bool _checkingResponse = true;
+  bool _isRequestOpen = true;
+  bool _checkingRequestStatus = true;
+
+  String _currentRequestStatus = 'open';
+
+  // ============================================================
+  // INITIALISE
+  // ============================================================
 
   @override
   void initState() {
     super.initState();
-    _checkExistingResponse();
+
+    _loadRequestState();
   }
 
   @override
@@ -112,7 +121,8 @@ class _HelpRequestDetailScreenState
 
     final text = value.toString().trim();
 
-    if (text.isEmpty || text == 'null') {
+    if (text.isEmpty ||
+        text.toLowerCase() == 'null') {
       return fallback;
     }
 
@@ -161,6 +171,84 @@ class _HelpRequestDetailScreenState
       );
 
   // ============================================================
+  // LOAD CURRENT REQUEST STATE
+  // ============================================================
+
+  Future<void> _loadRequestState() async {
+    await Future.wait([
+      _checkCurrentRequestStatus(),
+      _checkExistingResponse(),
+    ]);
+  }
+
+  // ============================================================
+  // CHECK LATEST REQUEST STATUS
+  // ============================================================
+
+  Future<void> _checkCurrentRequestStatus() async {
+    if (_requestId.isEmpty) {
+      if (mounted) {
+        setState(() {
+          _isRequestOpen = false;
+          _checkingRequestStatus = false;
+          _currentRequestStatus = 'unknown';
+        });
+      }
+      return;
+    }
+
+    try {
+      final data = await _supabase
+          .from('help_requests')
+          .select('status')
+          .eq('id', _requestId)
+          .maybeSingle();
+
+      if (!mounted) return;
+
+      if (data == null) {
+        setState(() {
+          _isRequestOpen = false;
+          _checkingRequestStatus = false;
+          _currentRequestStatus = 'not found';
+        });
+
+        return;
+      }
+
+      final status =
+          (data['status'] ?? '')
+              .toString()
+              .trim()
+              .toLowerCase();
+
+      setState(() {
+        _currentRequestStatus =
+            status.isEmpty
+                ? 'unknown'
+                : status;
+
+        _isRequestOpen =
+            status == 'open';
+
+        _checkingRequestStatus = false;
+      });
+    } catch (error) {
+      debugPrint(
+        'Error checking request status: $error',
+      );
+
+      if (!mounted) return;
+
+      setState(() {
+        _isRequestOpen = false;
+        _checkingRequestStatus = false;
+        _currentRequestStatus = 'unknown';
+      });
+    }
+  }
+
+  // ============================================================
   // CHECK IF USER ALREADY RESPONDED
   // ============================================================
 
@@ -169,12 +257,14 @@ class _HelpRequestDetailScreenState
       final user =
           _supabase.auth.currentUser;
 
-      if (user == null || _requestId.isEmpty) {
+      if (user == null ||
+          _requestId.isEmpty) {
         if (mounted) {
           setState(() {
             _checkingResponse = false;
           });
         }
+
         return;
       }
 
@@ -229,6 +319,7 @@ class _HelpRequestDetailScreenState
       _showError(
         'You must be logged in to respond to a request.',
       );
+
       return;
     }
 
@@ -236,21 +327,31 @@ class _HelpRequestDetailScreenState
       _showError(
         'This request is missing its ID.',
       );
+
       return;
     }
 
-    // Prevent responding to your own request.
+    // ------------------------------------------------------------
+    // PREVENT RESPONDING TO OWN REQUEST
+    // ------------------------------------------------------------
+
     if (_requestOwnerId == user.id) {
       _showError(
         'You cannot respond to your own help request.',
       );
+
       return;
     }
+
+    // ------------------------------------------------------------
+    // PREVENT DUPLICATE RESPONSE
+    // ------------------------------------------------------------
 
     if (_hasAlreadyResponded) {
       _showError(
         'You have already responded to this request.',
       );
+
       return;
     }
 
@@ -259,9 +360,77 @@ class _HelpRequestDetailScreenState
     });
 
     try {
-      // ========================================================
+      // ==========================================================
+      // FINAL LIVE STATUS CHECK
+      //
+      // Important:
+      // The request could have been completed or cancelled
+      // after this screen was opened.
+      // ==========================================================
+
+      final requestData =
+          await _supabase
+              .from('help_requests')
+              .select('status, user_id')
+              .eq('id', _requestId)
+              .maybeSingle();
+
+      if (requestData == null) {
+        throw Exception(
+          'This Help Request no longer exists.',
+        );
+      }
+
+      final latestStatus =
+          (requestData['status'] ?? '')
+              .toString()
+              .trim()
+              .toLowerCase();
+
+      final latestOwnerId =
+          (requestData['user_id'] ?? '')
+              .toString()
+              .trim();
+
+      if (latestStatus != 'open') {
+        throw Exception(
+          'This Help Request is no longer open for responses.',
+        );
+      }
+
+      if (latestOwnerId == user.id) {
+        throw Exception(
+          'You cannot respond to your own Help Request.',
+        );
+      }
+
+      // ==========================================================
+      // FINAL DUPLICATE CHECK
+      // ==========================================================
+
+      final existingResponse =
+          await _supabase
+              .from('help_responses')
+              .select('id')
+              .eq(
+                'request_id',
+                _requestId,
+              )
+              .eq(
+                'responder_id',
+                user.id,
+              )
+              .maybeSingle();
+
+      if (existingResponse != null) {
+        throw Exception(
+          'You have already responded to this Help Request.',
+        );
+      }
+
+      // ==========================================================
       // SAVE RESPONSE
-      // ========================================================
+      // ==========================================================
 
       await _supabase
           .from('help_responses')
@@ -277,26 +446,26 @@ class _HelpRequestDetailScreenState
         'status': 'pending',
       });
 
-      // ========================================================
-      // CREATE NOTIFICATION FOR REQUEST OWNER
-      //
-      // If notification creation fails, the response is still
-      // successful.
-      // ========================================================
+      // ==========================================================
+      // CREATE NOTIFICATION
+      // ==========================================================
 
       try {
         await _supabase
             .from('notifications')
             .insert({
-          'user_id': _requestOwnerId,
-          'title': 'New response to your help request',
+          'user_id': latestOwnerId,
+          'title':
+              'New response to your help request',
           'body':
-              '$_posterName has received a response to the request.',
+              'A Sisonke member has responded to your request: '
+              '${_safeText('title', 'Help Request')}.',
           'is_read': false,
         });
       } catch (notificationError) {
         debugPrint(
-          'Notification error: $notificationError',
+          'Notification error: '
+          '$notificationError',
         );
       }
 
@@ -307,7 +476,8 @@ class _HelpRequestDetailScreenState
         _hasAlreadyResponded = true;
       });
 
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context)
+          .showSnackBar(
         const SnackBar(
           content: Text(
             'Your response has been sent successfully.',
@@ -323,6 +493,55 @@ class _HelpRequestDetailScreenState
       if (!mounted) return;
 
       Navigator.pop(context, true);
+    } on PostgrestException catch (error) {
+      debugPrint(
+        'Supabase error submitting response: '
+        '${error.message}',
+      );
+
+      if (!mounted) return;
+
+      setState(() {
+        _isSubmitting = false;
+      });
+
+      final message =
+          error.message.toLowerCase();
+
+      if (message.contains(
+        'cannot respond to your own',
+      )) {
+        _showError(
+          'You cannot respond to your own Help Request.',
+        );
+      } else if (message.contains(
+        'already responded',
+      )) {
+        setState(() {
+          _hasAlreadyResponded = true;
+        });
+
+        _showError(
+          'You have already responded to this Help Request.',
+        );
+      } else if (message.contains(
+        'no longer open',
+      )) {
+        setState(() {
+          _isRequestOpen = false;
+          _currentRequestStatus =
+              'closed';
+        });
+
+        _showError(
+          'This Help Request is no longer accepting responses.',
+        );
+      } else {
+        _showError(
+          'Unable to send your response: '
+          '${error.message}',
+        );
+      }
     } catch (error) {
       debugPrint(
         'Error submitting response: $error',
@@ -334,8 +553,23 @@ class _HelpRequestDetailScreenState
         _isSubmitting = false;
       });
 
+      final errorText =
+          error.toString();
+
+      if (errorText
+          .toLowerCase()
+          .contains('no longer open')) {
+        setState(() {
+          _isRequestOpen = false;
+        });
+      }
+
       _showError(
-        'Unable to send response:\n$error',
+        errorText
+            .replaceFirst(
+          'Exception: ',
+          '',
+        ),
       );
     }
   }
@@ -347,7 +581,8 @@ class _HelpRequestDetailScreenState
   void _showError(String message) {
     if (!mounted) return;
 
-    ScaffoldMessenger.of(context).showSnackBar(
+    ScaffoldMessenger.of(context)
+        .showSnackBar(
       SnackBar(
         content: Text(message),
         backgroundColor: Colors.red,
@@ -383,6 +618,29 @@ class _HelpRequestDetailScreenState
           '${date.year}';
     } catch (_) {
       return 'Recently posted';
+    }
+  }
+
+  // ============================================================
+  // STATUS MESSAGE
+  // ============================================================
+
+  String _statusLabel() {
+    switch (_currentRequestStatus) {
+      case 'completed':
+        return 'This Help Request has been completed.';
+
+      case 'cancelled':
+        return 'This Help Request has been cancelled.';
+
+      case 'closed':
+        return 'This Help Request is closed.';
+
+      case 'not found':
+        return 'This Help Request is no longer available.';
+
+      default:
+        return 'This Help Request is no longer accepting responses.';
     }
   }
 
@@ -433,6 +691,10 @@ class _HelpRequestDetailScreenState
             currentUser.id ==
                 _requestOwnerId;
 
+    final bool isChecking =
+        _checkingResponse ||
+            _checkingRequestStatus;
+
     return Scaffold(
       backgroundColor:
           const Color(0xFFF6F7FB),
@@ -466,11 +728,13 @@ class _HelpRequestDetailScreenState
 
               Container(
                 width: double.infinity,
+
                 padding:
                     const EdgeInsets.all(20),
 
                 decoration: BoxDecoration(
                   color: Colors.white,
+
                   borderRadius:
                       BorderRadius.circular(
                     20,
@@ -480,6 +744,7 @@ class _HelpRequestDetailScreenState
                 child: Column(
                   crossAxisAlignment:
                       CrossAxisAlignment.start,
+
                   children: [
                     _buildPosterProfile(
                       posterName:
@@ -502,17 +767,20 @@ class _HelpRequestDetailScreenState
                     Row(
                       crossAxisAlignment:
                           CrossAxisAlignment.start,
+
                       children: [
                         Expanded(
                           child: Text(
                             title,
+
                             style:
                                 const TextStyle(
                               fontSize: 24,
+
                               fontWeight:
                                   FontWeight.bold,
-                              color:
-                                  Color(
+
+                              color: Color(
                                 0xFF1F2937,
                               ),
                             ),
@@ -525,12 +793,14 @@ class _HelpRequestDetailScreenState
                                 const EdgeInsets.only(
                               left: 10,
                             ),
+
                             padding:
                                 const EdgeInsets
                                     .symmetric(
                               horizontal: 10,
                               vertical: 6,
                             ),
+
                             decoration:
                                 BoxDecoration(
                               color:
@@ -538,18 +808,23 @@ class _HelpRequestDetailScreenState
                                       .withAlpha(
                                 25,
                               ),
+
                               borderRadius:
-                                  BorderRadius
-                                      .circular(
+                                  BorderRadius.circular(
                                 20,
                               ),
                             ),
-                            child: const Text(
+
+                            child:
+                                const Text(
                               'URGENT',
+
                               style: TextStyle(
                                 color:
                                     Colors.red,
+
                                 fontSize: 11,
+
                                 fontWeight:
                                     FontWeight.bold,
                               ),
@@ -565,15 +840,18 @@ class _HelpRequestDetailScreenState
                     Wrap(
                       spacing: 8,
                       runSpacing: 8,
+
                       children: [
                         _buildInfoChip(
                           Icons.category_outlined,
                           category,
                         ),
+
                         _buildInfoChip(
                           Icons.info_outline,
                           status,
                         ),
+
                         _buildInfoChip(
                           Icons
                               .calendar_today_outlined,
@@ -588,8 +866,10 @@ class _HelpRequestDetailScreenState
 
                     const Text(
                       'Description',
+
                       style: TextStyle(
                         fontSize: 16,
+
                         fontWeight:
                             FontWeight.bold,
                       ),
@@ -601,6 +881,7 @@ class _HelpRequestDetailScreenState
 
                     Text(
                       description,
+
                       style: TextStyle(
                         fontSize: 15,
                         height: 1.5,
@@ -615,29 +896,39 @@ class _HelpRequestDetailScreenState
               const SizedBox(height: 24),
 
               // ==================================================
-              // OWN REQUEST MESSAGE
+              // OWN REQUEST
               // ==================================================
 
               if (isOwnRequest)
                 _buildOwnRequestMessage(),
 
               // ==================================================
-              // CHECKING RESPONSE
+              // LOADING
               // ==================================================
 
               if (!isOwnRequest &&
-                  _checkingResponse)
+                  isChecking)
                 const Center(
                   child:
                       CircularProgressIndicator(),
                 ),
 
               // ==================================================
+              // REQUEST CLOSED
+              // ==================================================
+
+              if (!isOwnRequest &&
+                  !isChecking &&
+                  !_isRequestOpen)
+                _buildRequestClosedMessage(),
+
+              // ==================================================
               // ALREADY RESPONDED
               // ==================================================
 
               if (!isOwnRequest &&
-                  !_checkingResponse &&
+                  !isChecking &&
+                  _isRequestOpen &&
                   _hasAlreadyResponded)
                 _buildAlreadyRespondedMessage(),
 
@@ -646,7 +937,8 @@ class _HelpRequestDetailScreenState
               // ==================================================
 
               if (!isOwnRequest &&
-                  !_checkingResponse &&
+                  !isChecking &&
+                  _isRequestOpen &&
                   !_hasAlreadyResponded)
                 _buildResponseForm(),
             ],
@@ -663,12 +955,15 @@ class _HelpRequestDetailScreenState
   Widget _buildResponseForm() {
     return Form(
       key: _formKey,
+
       child: Column(
         crossAxisAlignment:
             CrossAxisAlignment.start,
+
         children: [
           const Text(
             'Respond to this request',
+
             style: TextStyle(
               fontSize: 21,
               fontWeight:
@@ -680,6 +975,7 @@ class _HelpRequestDetailScreenState
 
           Text(
             'Tell $_posterName how you can assist.',
+
             style: TextStyle(
               color:
                   Colors.grey.shade600,
@@ -691,19 +987,23 @@ class _HelpRequestDetailScreenState
           TextFormField(
             controller:
                 _messageController,
+
             maxLines: 6,
+
             validator: (value) {
               if (value == null ||
                   value.trim().isEmpty) {
                 return 'Please enter a message.';
               }
 
-              if (value.trim().length < 10) {
+              if (value.trim().length <
+                  10) {
                 return 'Please provide more information.';
               }
 
               return null;
             },
+
             decoration:
                 _inputDecoration(
               'How can you help?',
@@ -716,43 +1016,54 @@ class _HelpRequestDetailScreenState
           DropdownButtonFormField<String>(
             value:
                 _selectedAvailability,
+
             decoration:
                 _inputDecoration(
               'Availability',
               null,
             ),
+
             items: const [
               DropdownMenuItem(
                 value:
                     'Available immediately',
+
                 child: Text(
                   'Available immediately',
                 ),
               ),
+
               DropdownMenuItem(
                 value:
                     'Available today',
-                child: Text(
-                  'Available today',
-                ),
+
+                child:
+                    Text('Available today'),
               ),
+
               DropdownMenuItem(
                 value:
                     'Available this week',
+
                 child: Text(
                   'Available this week',
                 ),
               ),
+
               DropdownMenuItem(
                 value:
                     'Available by arrangement',
+
                 child: Text(
                   'Available by arrangement',
                 ),
               ),
             ],
+
             onChanged: (value) {
-              if (value == null) return;
+              if (value == null) {
+                return;
+              }
 
               setState(() {
                 _selectedAvailability =
@@ -766,32 +1077,42 @@ class _HelpRequestDetailScreenState
           DropdownButtonFormField<String>(
             value:
                 _selectedContactMethod,
+
             decoration:
                 _inputDecoration(
               'Preferred contact method',
               null,
             ),
+
             items: const [
               DropdownMenuItem(
                 value: 'Phone',
                 child: Text('Phone'),
               ),
+
               DropdownMenuItem(
                 value: 'WhatsApp',
                 child: Text('WhatsApp'),
               ),
+
               DropdownMenuItem(
                 value: 'Email',
                 child: Text('Email'),
               ),
+
               DropdownMenuItem(
-                value: 'In-app message',
+                value:
+                    'In-app message',
+
                 child:
                     Text('In-app message'),
               ),
             ],
+
             onChanged: (value) {
-              if (value == null) return;
+              if (value == null) {
+                return;
+              }
 
               setState(() {
                 _selectedContactMethod =
@@ -805,19 +1126,23 @@ class _HelpRequestDetailScreenState
           SizedBox(
             width: double.infinity,
             height: 55,
+
             child: ElevatedButton(
               onPressed:
                   _isSubmitting
                       ? null
                       : _submitResponse,
+
               style:
                   ElevatedButton.styleFrom(
                 backgroundColor:
                     const Color(
                   0xFFFFB300,
                 ),
+
                 foregroundColor:
                     Colors.white,
+
                 shape:
                     RoundedRectangleBorder(
                   borderRadius:
@@ -826,20 +1151,25 @@ class _HelpRequestDetailScreenState
                   ),
                 ),
               ),
+
               child: _isSubmitting
                   ? const SizedBox(
                       width: 24,
                       height: 24,
+
                       child:
                           CircularProgressIndicator(
                         strokeWidth: 3,
-                        color: Colors.white,
+                        color:
+                            Colors.white,
                       ),
                     )
                   : const Text(
                       'Submit Response',
+
                       style: TextStyle(
                         fontSize: 16,
+
                         fontWeight:
                             FontWeight.bold,
                       ),
@@ -860,24 +1190,73 @@ class _HelpRequestDetailScreenState
   Widget _buildOwnRequestMessage() {
     return Container(
       width: double.infinity,
+
       padding:
           const EdgeInsets.all(18),
+
       decoration: BoxDecoration(
         color:
             Colors.blue.withAlpha(20),
+
         borderRadius:
             BorderRadius.circular(16),
       ),
+
       child: const Row(
         children: [
           Icon(
             Icons.info_outline,
             color: Colors.blue,
           ),
+
           SizedBox(width: 12),
+
           Expanded(
             child: Text(
               'This is your help request. Other Sisonke members can respond to it.',
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ============================================================
+  // REQUEST CLOSED MESSAGE
+  // ============================================================
+
+  Widget _buildRequestClosedMessage() {
+    return Container(
+      width: double.infinity,
+
+      padding:
+          const EdgeInsets.all(18),
+
+      decoration: BoxDecoration(
+        color:
+            Colors.orange.withAlpha(25),
+
+        borderRadius:
+            BorderRadius.circular(16),
+      ),
+
+      child: Row(
+        children: [
+          const Icon(
+            Icons.lock_outline,
+            color: Colors.orange,
+          ),
+
+          const SizedBox(width: 12),
+
+          Expanded(
+            child: Text(
+              _statusLabel(),
+
+              style: const TextStyle(
+                fontWeight:
+                    FontWeight.w600,
+              ),
             ),
           ),
         ],
@@ -892,24 +1271,31 @@ class _HelpRequestDetailScreenState
   Widget _buildAlreadyRespondedMessage() {
     return Container(
       width: double.infinity,
+
       padding:
           const EdgeInsets.all(18),
+
       decoration: BoxDecoration(
         color:
             Colors.green.withAlpha(20),
+
         borderRadius:
             BorderRadius.circular(16),
       ),
+
       child: const Row(
         children: [
           Icon(
             Icons.check_circle,
             color: Colors.green,
           ),
+
           SizedBox(width: 12),
+
           Expanded(
             child: Text(
               'You have already responded to this request.',
+
               style: TextStyle(
                 fontWeight:
                     FontWeight.w600,
@@ -934,14 +1320,17 @@ class _HelpRequestDetailScreenState
       children: [
         CircleAvatar(
           radius: 30,
+
           backgroundColor:
               const Color(0xFFE5E7EB),
+
           backgroundImage:
               avatarUrl.isNotEmpty
                   ? NetworkImage(
                       avatarUrl,
                     )
                   : null,
+
           child: avatarUrl.isEmpty
               ? const Icon(
                   Icons.person,
@@ -958,15 +1347,20 @@ class _HelpRequestDetailScreenState
           child: Column(
             crossAxisAlignment:
                 CrossAxisAlignment.start,
+
             children: [
               Text(
                 posterName,
+
                 maxLines: 1,
+
                 overflow:
                     TextOverflow.ellipsis,
+
                 style:
                     const TextStyle(
                   fontSize: 17,
+
                   fontWeight:
                       FontWeight.bold,
                 ),
@@ -982,21 +1376,31 @@ class _HelpRequestDetailScreenState
                     const Icon(
                       Icons
                           .location_on_outlined,
+
                       size: 15,
+
                       color:
-                          Color(0xFF6B7280),
+                          Color(
+                        0xFF6B7280,
+                      ),
                     ),
+
                     const SizedBox(width: 5),
+
                     Expanded(
                       child: Text(
                         location,
+
                         maxLines: 1,
+
                         overflow:
                             TextOverflow
                                 .ellipsis,
+
                         style:
                             const TextStyle(
                           fontSize: 12,
+
                           color:
                               Color(
                             0xFF6B7280,
@@ -1009,10 +1413,14 @@ class _HelpRequestDetailScreenState
               else
                 const Text(
                   'Sisonke Community Member',
+
                   style: TextStyle(
                     fontSize: 12,
+
                     color:
-                        Color(0xFF6B7280),
+                        Color(
+                      0xFF6B7280,
+                    ),
                   ),
                 ),
             ],
@@ -1036,29 +1444,39 @@ class _HelpRequestDetailScreenState
         horizontal: 10,
         vertical: 7,
       ),
+
       decoration: BoxDecoration(
         color:
             const Color(0xFFF3F4F6),
+
         borderRadius:
             BorderRadius.circular(10),
       ),
+
       child: Row(
         mainAxisSize:
             MainAxisSize.min,
+
         children: [
           Icon(
             icon,
+
             size: 15,
+
             color:
                 const Color(
               0xFF4B5563,
             ),
           ),
+
           const SizedBox(width: 5),
+
           Text(
             label,
+
             style: const TextStyle(
               fontSize: 12,
+
               fontWeight:
                   FontWeight.w600,
             ),
@@ -1080,22 +1498,29 @@ class _HelpRequestDetailScreenState
       labelText: label,
       hintText: hint,
       alignLabelWithHint: true,
-      border: OutlineInputBorder(
+
+      border:
+          OutlineInputBorder(
         borderRadius:
             BorderRadius.circular(14),
       ),
+
       enabledBorder:
           OutlineInputBorder(
         borderRadius:
             BorderRadius.circular(14),
+
         borderSide: BorderSide(
-          color: Colors.grey.shade300,
+          color:
+              Colors.grey.shade300,
         ),
       ),
+
       focusedBorder:
           const OutlineInputBorder(
         borderSide: BorderSide(
-          color: Color(0xFFFFB300),
+          color:
+              Color(0xFFFFB300),
           width: 2,
         ),
       ),
