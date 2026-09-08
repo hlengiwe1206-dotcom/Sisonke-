@@ -11,22 +11,28 @@ class CreateHelpRequestScreen extends StatefulWidget {
 
 class _CreateHelpRequestScreenState
     extends State<CreateHelpRequestScreen> {
-  final SupabaseClient _supabase = Supabase.instance.client;
+  final SupabaseClient _supabase =
+      Supabase.instance.client;
 
-  final TextEditingController _titleController = TextEditingController();
+  final GlobalKey<FormState> _formKey =
+      GlobalKey<FormState>();
+
+  final TextEditingController _titleController =
+      TextEditingController();
+
   final TextEditingController _descriptionController =
       TextEditingController();
+
   final TextEditingController _locationController =
       TextEditingController();
 
-  final FocusNode _locationFocusNode = FocusNode();
-
+  bool _isSubmitting = false;
   bool _urgent = false;
-  bool _isPosting = false;
 
-  String _selectedCategory = 'General Assistance';
+  String _selectedCategory =
+      'General Assistance';
 
-  final List<String> _categories = const [
+  final List<String> _categories = [
     'General Assistance',
     'Food',
     'Employment',
@@ -44,345 +50,688 @@ class _CreateHelpRequestScreenState
     _titleController.dispose();
     _descriptionController.dispose();
     _locationController.dispose();
-    _locationFocusNode.dispose();
     super.dispose();
   }
 
-  Future<void> _postHelpRequest() async {
-    if (_isPosting) return;
+  // ============================================================
+  // SUBMIT
+  // ============================================================
+
+  Future<void> _submitHelpRequest() async {
+    if (!_formKey.currentState!.validate()) {
+      return;
+    }
 
     final user = _supabase.auth.currentUser;
 
     if (user == null) {
-      _showError('Please sign in before posting a help request.');
-      return;
-    }
-
-    final title = _titleController.text.trim();
-    final description = _descriptionController.text.trim();
-    final location = _locationController.text.trim();
-
-    if (title.isEmpty) {
-      _showError('Please enter a title for your help request.');
-      return;
-    }
-
-    if (description.isEmpty) {
-      _showError('Please describe your situation.');
-      return;
-    }
-
-    if (location.isEmpty) {
-      _showError('Please enter your location.');
+      _showMessage(
+        'You must be signed in to create a help request.',
+        isError: true,
+      );
       return;
     }
 
     setState(() {
-      _isPosting = true;
+      _isSubmitting = true;
     });
 
     String? createdPostId;
 
     try {
-      // ------------------------------------------------------------
-      // STEP 1: CREATE THE PARENT POST
+      final title =
+          _titleController.text.trim();
+
+      final description =
+          _descriptionController.text.trim();
+
+      final location =
+          _locationController.text.trim();
+
+      // ========================================================
+      // STEP 1 — CREATE THE PARENT POST
       //
       // IMPORTANT:
-      // posts.type is NOT NULL and is a post_type enum.
-      // posts.status is also NOT NULL and is a content_status enum.
-      // ------------------------------------------------------------
+      // posts.type MUST be exactly "help_request".
+      // ========================================================
 
       final postResponse = await _supabase
           .from('posts')
           .insert({
-            'user_id': user.id,
-            'type': 'help_request',
-            'title': title,
-            'content': description,
-            'status': 'active',
-          })
+        'user_id': user.id,
+
+        // REQUIRED BY THE DATABASE
+        'type': 'help_request',
+
+        'title': title,
+
+        'content': description,
+
+        // posts.status is required.
+        // "active" is the content_status enum value.
+        'status': 'active',
+      })
           .select('id')
           .single();
 
-      createdPostId = postResponse['id'] as String;
+      createdPostId =
+          postResponse['id']?.toString();
 
-      // ------------------------------------------------------------
-      // STEP 2: CREATE THE HELP REQUEST
-      // ------------------------------------------------------------
+      if (createdPostId == null ||
+          createdPostId!.isEmpty) {
+        throw Exception(
+          'The help request post was created but no post ID was returned.',
+        );
+      }
 
-      await _supabase.from('help_requests').insert({
+      // ========================================================
+      // STEP 2 — CREATE THE HELP REQUEST
+      // ========================================================
+
+      await _supabase
+          .from('help_requests')
+          .insert({
         'post_id': createdPostId,
         'requester_id': user.id,
+
+        // help_status enum
         'status': 'open',
+
         'category': _selectedCategory,
+
         'location': location,
+
         'urgent': _urgent,
       });
 
+      // ========================================================
+      // SUCCESS
+      // ========================================================
+
       if (!mounted) return;
 
-      // Clear the form after successful submission.
-      _titleController.clear();
-      _descriptionController.clear();
-      _locationController.clear();
-
-      setState(() {
-        _urgent = false;
-        _selectedCategory = 'General Assistance';
-        _isPosting = false;
-      });
-
-      // Show success message.
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Your help request has been posted successfully.',
-          ),
-          behavior: SnackBarBehavior.floating,
-          duration: Duration(seconds: 3),
-        ),
+      _showMessage(
+        'Your help request has been posted successfully.',
       );
 
-      // Return to the previous screen.
       Navigator.of(context).pop(true);
-    } catch (error) {
-      // ------------------------------------------------------------
-      // CLEANUP
+    } on PostgrestException catch (error) {
+      debugPrint(
+        'SISONKE CREATE HELP REQUEST DATABASE ERROR',
+      );
+
+      debugPrint(
+        'Code: ${error.code}',
+      );
+
+      debugPrint(
+        'Message: ${error.message}',
+      );
+
+      debugPrint(
+        'Details: ${error.details}',
+      );
+
+      // ========================================================
+      // CLEAN UP ORPHAN POST
       //
-      // If the posts row was created but help_requests failed,
-      // remove the orphaned post.
-      // ------------------------------------------------------------
+      // If the posts row succeeded but help_requests failed,
+      // remove the orphan post.
+      // ========================================================
 
       if (createdPostId != null) {
         try {
           await _supabase
               .from('posts')
               .delete()
-              .eq('id', createdPostId);
-        } catch (_) {
-          // Ignore cleanup errors.
+              .eq('id', createdPostId!);
+        } catch (cleanupError) {
+          debugPrint(
+            'SISONKE ORPHAN POST CLEANUP ERROR: '
+            '$cleanupError',
+          );
         }
       }
 
       if (!mounted) return;
 
-      setState(() {
-        _isPosting = false;
-      });
+      _showMessage(
+        _friendlyDatabaseMessage(error),
+        isError: true,
+      );
+    } catch (error) {
+      debugPrint(
+        'SISONKE CREATE HELP REQUEST ERROR: $error',
+      );
 
-      _showError(_friendlyError(error));
+      if (createdPostId != null) {
+        try {
+          await _supabase
+              .from('posts')
+              .delete()
+              .eq('id', createdPostId!);
+        } catch (cleanupError) {
+          debugPrint(
+            'SISONKE ORPHAN POST CLEANUP ERROR: '
+            '$cleanupError',
+          );
+        }
+      }
+
+      if (!mounted) return;
+
+      _showMessage(
+        'Unable to create the help request: $error',
+        isError: true,
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isSubmitting = false;
+        });
+      }
     }
   }
 
-  String _friendlyError(Object error) {
-    final message = error.toString();
+  // ============================================================
+  // DATABASE ERROR MESSAGE
+  // ============================================================
 
-    if (message.contains('posts_type_check') ||
-        message.contains('invalid input value for enum post_type')) {
+  String _friendlyDatabaseMessage(
+    PostgrestException error,
+  ) {
+    final message =
+        error.message.toLowerCase();
+
+    if (message.contains('post type')) {
       return 'There is a problem with the help request post type. '
           'The database expects help_request.';
     }
 
-    if (message.contains('posts_status') ||
-        message.contains('invalid input value for enum content_status')) {
-      return 'There is a problem with the post status. '
-          'The database expects active.';
+    if (message.contains('not-null')) {
+      return 'A required field is missing from the help request. '
+          'Please try again.';
     }
 
-    if (message.contains('help_requests')) {
-      return 'Database error while creating the help request: '
-          '${_cleanDatabaseMessage(message)}';
+    if (message.contains('row-level security')) {
+      return 'You do not have permission to create this help request.';
     }
 
-    if (message.contains('posts')) {
-      return 'Database error while creating the post: '
-          '${_cleanDatabaseMessage(message)}';
-    }
-
-    return 'Unable to post your help request: '
-        '${_cleanDatabaseMessage(message)}';
+    return 'Database error: ${error.message}';
   }
 
-  String _cleanDatabaseMessage(String message) {
-    if (message.startsWith('PostgrestException')) {
-      final separator = message.indexOf(':');
+  // ============================================================
+  // MESSAGE
+  // ============================================================
 
-      if (separator != -1 && separator + 1 < message.length) {
-        return message.substring(separator + 1).trim();
-      }
-    }
-
-    return message;
-  }
-
-  void _showError(String message) {
+  void _showMessage(
+    String message, {
+    bool isError = false,
+  }) {
     if (!mounted) return;
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: const Color(0xFFDE3831),
-        behavior: SnackBarBehavior.floating,
-        duration: const Duration(seconds: 5),
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(message),
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: isError
+              ? Colors.red.shade700
+              : const Color(0xFF007749),
+        ),
+      );
+  }
+
+  // ============================================================
+  // INPUT DECORATION
+  // ============================================================
+
+  InputDecoration _inputDecoration({
+    required String label,
+    required IconData icon,
+    String? hint,
+  }) {
+    return InputDecoration(
+      labelText: label,
+      hintText: hint,
+      prefixIcon: Icon(
+        icon,
+        color: const Color(0xFF4F5753),
+      ),
+      filled: true,
+      fillColor: Colors.white,
+      floatingLabelStyle:
+          const TextStyle(
+        color: Color(0xFF007749),
+        fontWeight: FontWeight.w600,
+      ),
+      border: OutlineInputBorder(
+        borderRadius:
+            BorderRadius.circular(22),
+        borderSide: const BorderSide(
+          color: Color(0xFFD4D7D5),
+        ),
+      ),
+      enabledBorder:
+          OutlineInputBorder(
+        borderRadius:
+            BorderRadius.circular(22),
+        borderSide: const BorderSide(
+          color: Color(0xFFD4D7D5),
+        ),
+      ),
+      focusedBorder:
+          OutlineInputBorder(
+        borderRadius:
+            BorderRadius.circular(22),
+        borderSide: const BorderSide(
+          color: Color(0xFF007749),
+          width: 2,
+        ),
+      ),
+      contentPadding:
+          const EdgeInsets.symmetric(
+        horizontal: 20,
+        vertical: 18,
       ),
     );
   }
 
+  // ============================================================
+  // CATEGORY ICON
+  // ============================================================
+
+  IconData _categoryIcon(
+    String category,
+  ) {
+    switch (category.toLowerCase()) {
+      case 'food':
+        return Icons.restaurant_outlined;
+
+      case 'employment':
+        return Icons.work_outline;
+
+      case 'education':
+        return Icons.school_outlined;
+
+      case 'healthcare':
+        return Icons.health_and_safety_outlined;
+
+      case 'housing':
+        return Icons.home_work_outlined;
+
+      case 'transport':
+        return Icons.directions_car_outlined;
+
+      case 'business':
+        return Icons.business_outlined;
+
+      case 'emergency':
+        return Icons.warning_amber_rounded;
+
+      default:
+        return Icons.volunteer_activism_outlined;
+    }
+  }
+
+  // ============================================================
+  // BUILD
+  // ============================================================
+
   @override
   Widget build(BuildContext context) {
-    const green = Color(0xFF007749);
-    const darkGreen = Color(0xFF005A38);
-    const red = Color(0xFFDE3831);
-    const ivory = Color(0xFFF8F7F2);
-    const muted = Color(0xFF69707A);
-
     return Scaffold(
-      backgroundColor: ivory,
+      backgroundColor:
+          const Color(0xFFF7F7F4),
+
       appBar: AppBar(
-        backgroundColor: const Color(0xFFEFF1EC),
+        backgroundColor:
+            const Color(0xFFE9EEE9),
         elevation: 0,
+        scrolledUnderElevation: 0,
         centerTitle: true,
-        leading: IconButton(
-          icon: const Icon(
-            Icons.arrow_back,
-            size: 30,
-            color: Color(0xFF222222),
-          ),
-          onPressed: _isPosting
-              ? null
-              : () => Navigator.of(context).pop(),
-        ),
         title: const Text(
           'Request Help',
           style: TextStyle(
-            color: Color(0xFF17191C),
             fontSize: 26,
-            fontWeight: FontWeight.w700,
+            fontWeight: FontWeight.w800,
+            color: Color(0xFF15191C),
           ),
         ),
+        iconTheme:
+            const IconThemeData(
+          color: Color(0xFF15191C),
+          size: 30,
+        ),
       ),
-      body: SafeArea(
-        child: GestureDetector(
-          onTap: () => FocusScope.of(context).unfocus(),
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.fromLTRB(24, 24, 24, 32),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                // ------------------------------------------------------
-                // INTRODUCTION
-                // ------------------------------------------------------
 
-                const Text(
-                  'Tell your community how they can help.',
-                  style: TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.w700,
-                    color: Color(0xFF222222),
+      body: SafeArea(
+        child: Form(
+          key: _formKey,
+          child: SingleChildScrollView(
+            padding:
+                const EdgeInsets.fromLTRB(
+              24,
+              22,
+              24,
+              35,
+            ),
+            child: Column(
+              crossAxisAlignment:
+                  CrossAxisAlignment.start,
+              children: [
+                // ==================================================
+                // TITLE
+                // ==================================================
+
+                TextFormField(
+                  controller:
+                      _titleController,
+                  maxLength: 120,
+                  textCapitalization:
+                      TextCapitalization.sentences,
+                  style:
+                      const TextStyle(
+                    fontSize: 19,
+                    color:
+                        Color(0xFF1D2225),
                   ),
+                  decoration:
+                      _inputDecoration(
+                    label: 'What do you need help with?',
+                    icon: Icons.title_outlined,
+                    hint:
+                        'e.g. I need help finding work',
+                  ),
+                  validator: (value) {
+                    final text =
+                        value?.trim() ?? '';
+
+                    if (text.isEmpty) {
+                      return 'Please describe what you need help with.';
+                    }
+
+                    if (text.length < 5) {
+                      return 'Please provide a little more detail.';
+                    }
+
+                    return null;
+                  },
+                ),
+
+                const SizedBox(height: 18),
+
+                // ==================================================
+                // CATEGORY
+                // ==================================================
+
+                DropdownButtonFormField<
+                    String>(
+                  value:
+                      _selectedCategory,
+                  decoration:
+                      _inputDecoration(
+                    label: 'Category',
+                    icon:
+                        _categoryIcon(
+                      _selectedCategory,
+                    ),
+                  ),
+                  items: _categories
+                      .map(
+                        (category) {
+                      return DropdownMenuItem<
+                          String>(
+                        value: category,
+                        child: Text(
+                          category,
+                          style:
+                              const TextStyle(
+                            fontSize: 18,
+                          ),
+                        ),
+                      );
+                    }).toList(),
+                  onChanged: _isSubmitting
+                      ? null
+                      : (value) {
+                          if (value ==
+                              null) {
+                            return;
+                          }
+
+                          setState(() {
+                            _selectedCategory =
+                                value;
+                          });
+                        },
+                ),
+
+                const SizedBox(height: 18),
+
+                // ==================================================
+                // DESCRIPTION
+                // ==================================================
+
+                TextFormField(
+                  controller:
+                      _descriptionController,
+                  maxLines: 7,
+                  maxLength: 2000,
+                  textCapitalization:
+                      TextCapitalization.sentences,
+                  style:
+                      const TextStyle(
+                    fontSize: 18,
+                    height: 1.45,
+                    color:
+                        Color(0xFF1D2225),
+                  ),
+                  decoration:
+                      _inputDecoration(
+                    label:
+                        'Describe your situation',
+                    icon:
+                        Icons.description_outlined,
+                    hint:
+                        'Tell the Sisonke community what you need and how someone could help.',
+                  ),
+                  validator: (value) {
+                    final text =
+                        value?.trim() ?? '';
+
+                    if (text.isEmpty) {
+                      return 'Please describe your situation.';
+                    }
+
+                    if (text.length < 10) {
+                      return 'Please provide more information.';
+                    }
+
+                    return null;
+                  },
                 ),
 
                 const SizedBox(height: 8),
 
-                const Text(
-                  'Be clear and specific so the right person can respond.',
-                  style: TextStyle(
-                    fontSize: 15,
-                    height: 1.4,
-                    color: muted,
-                  ),
-                ),
-
-                const SizedBox(height: 24),
-
-                // ------------------------------------------------------
-                // TITLE
-                // ------------------------------------------------------
-
-                _buildTextField(
-                  controller: _titleController,
-                  label: 'What do you need help with?',
-                  hint: 'e.g. I need funding for my NGO',
-                  icon: Icons.help_outline,
-                  maxLines: 1,
-                ),
-
-                const SizedBox(height: 22),
-
-                // ------------------------------------------------------
-                // CATEGORY
-                // ------------------------------------------------------
-
-                _buildCategoryField(
-                  green: green,
-                ),
-
-                const SizedBox(height: 22),
-
-                // ------------------------------------------------------
-                // DESCRIPTION
-                // ------------------------------------------------------
-
-                _buildDescriptionField(),
-
-                const SizedBox(height: 22),
-
-                // ------------------------------------------------------
+                // ==================================================
                 // LOCATION
-                // ------------------------------------------------------
+                // ==================================================
 
-                _buildTextField(
-                  controller: _locationController,
-                  label: 'Location',
-                  hint: 'e.g. Dobsonville',
-                  icon: Icons.location_on_outlined,
-                  focusNode: _locationFocusNode,
-                  maxLines: 1,
+                TextFormField(
+                  controller:
+                      _locationController,
+                  textCapitalization:
+                      TextCapitalization.words,
+                  style:
+                      const TextStyle(
+                    fontSize: 19,
+                    color:
+                        Color(0xFF1D2225),
+                  ),
+                  decoration:
+                      _inputDecoration(
+                    label: 'Location',
+                    icon:
+                        Icons.location_on_outlined,
+                    hint:
+                        'e.g. Dobsonville',
+                  ),
+                  validator: (value) {
+                    final text =
+                        value?.trim() ?? '';
+
+                    if (text.isEmpty) {
+                      return 'Please provide your location.';
+                    }
+
+                    return null;
+                  },
                 ),
 
                 const SizedBox(height: 22),
 
-                // ------------------------------------------------------
+                // ==================================================
                 // URGENT
-                // ------------------------------------------------------
-
-                _buildUrgentCard(
-                  red: red,
-                ),
-
-                const SizedBox(height: 28),
-
-                // ------------------------------------------------------
-                // SAFETY NOTE
-                // ------------------------------------------------------
+                // ==================================================
 
                 Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(16),
+                  width: double.infinity,
+                  padding:
+                      const EdgeInsets.symmetric(
+                    horizontal: 20,
+                    vertical: 18,
+                  ),
+                  decoration:
+                      BoxDecoration(
+                    color: _urgent
+                        ? const Color(
+                            0xFFFCEBE8,
+                          )
+                        : Colors.white,
+                    borderRadius:
+                        BorderRadius.circular(
+                      24,
+                    ),
                     border: Border.all(
-                      color: const Color(0xFFE6E7E8),
+                      color: _urgent
+                          ? const Color(
+                              0xFFF3C8C2,
+                            )
+                          : const Color(
+                              0xFFE1E4E2,
+                            ),
                     ),
                   ),
                   child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Icon(
-                        Icons.shield_outlined,
-                        color: green,
-                        size: 24,
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment:
+                              CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'This request is urgent',
+                              style:
+                                  TextStyle(
+                                fontSize: 21,
+                                fontWeight:
+                                    FontWeight.w700,
+                                color:
+                                    Color(0xFF202428),
+                              ),
+                            ),
+                            const SizedBox(
+                              height: 6,
+                            ),
+                            Text(
+                              'Use this for requests that need quicker attention.',
+                              style:
+                                  TextStyle(
+                                fontSize: 16,
+                                height: 1.35,
+                                color: Colors
+                                    .grey
+                                    .shade700,
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
-                      const SizedBox(width: 12),
+                      const SizedBox(
+                        width: 14,
+                      ),
+                      Switch(
+                        value: _urgent,
+                        activeThumbColor:
+                            const Color(
+                          0xFFDE3831,
+                        ),
+                        activeTrackColor:
+                            const Color(
+                          0xFFF4AAA4,
+                        ),
+                        onChanged:
+                            _isSubmitting
+                                ? null
+                                : (value) {
+                                    setState(
+                                      () {
+                                        _urgent =
+                                            value;
+                                      },
+                                    );
+                                  },
+                      ),
+                    ],
+                  ),
+                ),
+
+                const SizedBox(height: 22),
+
+                // ==================================================
+                // SAFETY MESSAGE
+                // ==================================================
+
+                Container(
+                  width: double.infinity,
+                  padding:
+                      const EdgeInsets.all(20),
+                  decoration:
+                      BoxDecoration(
+                    color: Colors.white,
+                    borderRadius:
+                        BorderRadius.circular(
+                      22,
+                    ),
+                    border: Border.all(
+                      color: const Color(
+                        0xFFE1E4E2,
+                      ),
+                    ),
+                  ),
+                  child: Row(
+                    crossAxisAlignment:
+                        CrossAxisAlignment.start,
+                    children: [
+                      const Icon(
+                        Icons.shield_outlined,
+                        color:
+                            Color(0xFF007749),
+                        size: 30,
+                      ),
+                      const SizedBox(
+                        width: 14,
+                      ),
                       const Expanded(
                         child: Text(
-                          'For your safety, avoid sharing passwords, '
-                          'PINs, banking details or other sensitive '
-                          'personal information.',
+                          'For your safety, avoid sharing passwords, PINs, banking details or other sensitive personal information.',
                           style: TextStyle(
-                            fontSize: 14,
-                            height: 1.4,
-                            color: muted,
+                            fontSize: 16,
+                            height: 1.45,
+                            color:
+                                Color(0xFF69707A),
                           ),
                         ),
                       ),
@@ -392,53 +741,66 @@ class _CreateHelpRequestScreenState
 
                 const SizedBox(height: 28),
 
-                // ------------------------------------------------------
+                // ==================================================
                 // POST BUTTON
-                // ------------------------------------------------------
+                // ==================================================
 
                 SizedBox(
-                  height: 66,
-                  child: ElevatedButton(
-                    onPressed: _isPosting ? null : _postHelpRequest,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: green,
-                      disabledBackgroundColor:
-                          green.withValues(alpha: 0.55),
-                      foregroundColor: Colors.white,
-                      elevation: 3,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(20),
+                  width: double.infinity,
+                  height: 72,
+                  child: FilledButton.icon(
+                    style:
+                        FilledButton.styleFrom(
+                      backgroundColor:
+                          const Color(
+                        0xFF007749,
                       ),
+                      foregroundColor:
+                          Colors.white,
+                      disabledBackgroundColor:
+                          const Color(
+                        0xFF78A992,
+                      ),
+                      shape:
+                          RoundedRectangleBorder(
+                        borderRadius:
+                            BorderRadius.circular(
+                          24,
+                        ),
+                      ),
+                      elevation: 2,
                     ),
-                    child: _isPosting
+                    onPressed:
+                        _isSubmitting
+                            ? null
+                            : _submitHelpRequest,
+                    icon: _isSubmitting
                         ? const SizedBox(
-                            height: 27,
-                            width: 27,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 3,
-                              valueColor:
-                                  AlwaysStoppedAnimation<Color>(
-                                Colors.white,
-                              ),
+                            width: 23,
+                            height: 23,
+                            child:
+                                CircularProgressIndicator(
+                              strokeWidth:
+                                  2.5,
+                              color:
+                                  Colors.white,
                             ),
                           )
-                        : const Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(
-                                Icons.volunteer_activism,
-                                size: 28,
-                              ),
-                              SizedBox(width: 12),
-                              Text(
-                                'Post Help Request',
-                                style: TextStyle(
-                                  fontSize: 21,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                            ],
+                        : const Icon(
+                            Icons.volunteer_activism,
+                            size: 28,
                           ),
+                    label: Text(
+                      _isSubmitting
+                          ? 'POSTING...'
+                          : 'Post Help Request',
+                      style:
+                          const TextStyle(
+                        fontSize: 20,
+                        fontWeight:
+                            FontWeight.w800,
+                      ),
+                    ),
                   ),
                 ),
 
@@ -446,11 +808,14 @@ class _CreateHelpRequestScreenState
 
                 const Center(
                   child: Text(
-                    'Your request will be visible to people in the Sisonke community.',
-                    textAlign: TextAlign.center,
+                    'Your request will be visible to Sisonke community members who may be able to help.',
+                    textAlign:
+                        TextAlign.center,
                     style: TextStyle(
                       fontSize: 12,
-                      color: muted,
+                      height: 1.4,
+                      color:
+                          Color(0xFF69707A),
                     ),
                   ),
                 ),
@@ -458,281 +823,6 @@ class _CreateHelpRequestScreenState
             ),
           ),
         ),
-      ),
-    );
-  }
-
-  Widget _buildTextField({
-    required TextEditingController controller,
-    required String label,
-    required String hint,
-    required IconData icon,
-    required int maxLines,
-    FocusNode? focusNode,
-  }) {
-    const green = Color(0xFF007749);
-
-    return TextField(
-      controller: controller,
-      focusNode: focusNode,
-      maxLines: maxLines,
-      textInputAction:
-          maxLines == 1 ? TextInputAction.next : TextInputAction.newline,
-      style: const TextStyle(
-        fontSize: 18,
-        color: Color(0xFF202124),
-      ),
-      decoration: InputDecoration(
-        labelText: label,
-        hintText: hint,
-        prefixIcon: Icon(
-          icon,
-          color: const Color(0xFF59605D),
-          size: 27,
-        ),
-        floatingLabelStyle: const TextStyle(
-          color: green,
-          fontSize: 18,
-          fontWeight: FontWeight.w500,
-        ),
-        filled: true,
-        fillColor: Colors.white,
-        contentPadding: const EdgeInsets.symmetric(
-          horizontal: 20,
-          vertical: 20,
-        ),
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(22),
-          borderSide: const BorderSide(
-            color: Color(0xFFBFC1C0),
-            width: 1.5,
-          ),
-        ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(22),
-          borderSide: const BorderSide(
-            color: Color(0xFFBFC1C0),
-            width: 1.5,
-          ),
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(22),
-          borderSide: const BorderSide(
-            color: green,
-            width: 2,
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildCategoryField({
-    required Color green,
-  }) {
-    return DropdownButtonFormField<String>(
-      initialValue: _selectedCategory,
-      isExpanded: true,
-      icon: const Icon(
-        Icons.keyboard_arrow_down,
-        size: 30,
-      ),
-      style: const TextStyle(
-        fontSize: 18,
-        color: Color(0xFF202124),
-      ),
-      decoration: InputDecoration(
-        labelText: 'Category',
-        prefixIcon: const Icon(
-          Icons.category_outlined,
-          color: Color(0xFF59605D),
-          size: 27,
-        ),
-        filled: true,
-        fillColor: Colors.white,
-        contentPadding: const EdgeInsets.symmetric(
-          horizontal: 18,
-          vertical: 18,
-        ),
-        floatingLabelStyle: TextStyle(
-          color: green,
-          fontSize: 18,
-        ),
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(22),
-          borderSide: const BorderSide(
-            color: Color(0xFFBFC1C0),
-            width: 1.5,
-          ),
-        ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(22),
-          borderSide: const BorderSide(
-            color: Color(0xFFBFC1C0),
-            width: 1.5,
-          ),
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(22),
-          borderSide: BorderSide(
-            color: green,
-            width: 2,
-          ),
-        ),
-      ),
-      items: _categories
-          .map(
-            (category) => DropdownMenuItem<String>(
-              value: category,
-              child: Text(category),
-            ),
-          )
-          .toList(),
-      onChanged: _isPosting
-          ? null
-          : (value) {
-              if (value == null) return;
-
-              setState(() {
-                _selectedCategory = value;
-              });
-            },
-    );
-  }
-
-  Widget _buildDescriptionField() {
-    const green = Color(0xFF007749);
-
-    return TextField(
-      controller: _descriptionController,
-      maxLines: 6,
-      maxLength: 2000,
-      textInputAction: TextInputAction.newline,
-      style: const TextStyle(
-        fontSize: 18,
-        height: 1.45,
-        color: Color(0xFF202124),
-      ),
-      decoration: InputDecoration(
-        labelText: 'Describe your situation',
-        hintText:
-            'Explain what you need and how someone can help.',
-        prefixIcon: const Padding(
-          padding: EdgeInsets.only(
-            left: 18,
-            right: 12,
-            top: 18,
-          ),
-          child: Align(
-            alignment: Alignment.topCenter,
-            widthFactor: 1,
-            child: Icon(
-              Icons.description_outlined,
-              color: Color(0xFF59605D),
-              size: 27,
-            ),
-          ),
-        ),
-        alignLabelWithHint: true,
-        filled: true,
-        fillColor: Colors.white,
-        contentPadding: const EdgeInsets.fromLTRB(
-          18,
-          20,
-          18,
-          16,
-        ),
-        floatingLabelStyle: const TextStyle(
-          color: green,
-          fontSize: 18,
-        ),
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(22),
-          borderSide: const BorderSide(
-            color: Color(0xFFBFC1C0),
-            width: 1.5,
-          ),
-        ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(22),
-          borderSide: const BorderSide(
-            color: Color(0xFFBFC1C0),
-            width: 1.5,
-          ),
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(22),
-          borderSide: const BorderSide(
-            color: green,
-            width: 2,
-          ),
-        ),
-        counterStyle: const TextStyle(
-          color: Color(0xFF69707A),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildUrgentCard({
-    required Color red,
-  }) {
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 200),
-      padding: const EdgeInsets.fromLTRB(20, 18, 14, 18),
-      decoration: BoxDecoration(
-        color: _urgent
-            ? const Color(0xFFFFF0ED)
-            : Colors.white,
-        borderRadius: BorderRadius.circular(22),
-        border: Border.all(
-          color: _urgent
-              ? const Color(0xFFF3C7C2)
-              : const Color(0xFFE6E7E8),
-          width: 1.5,
-        ),
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'This request is urgent',
-                  style: TextStyle(
-                    fontSize: 19,
-                    fontWeight: FontWeight.w700,
-                    color: _urgent
-                        ? const Color(0xFF252525)
-                        : const Color(0xFF252525),
-                  ),
-                ),
-                const SizedBox(height: 5),
-                const Text(
-                  'Use this for requests that need quicker attention.',
-                  style: TextStyle(
-                    fontSize: 15,
-                    height: 1.35,
-                    color: Color(0xFF69707A),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 8),
-          Switch(
-            value: _urgent,
-            onChanged: _isPosting
-                ? null
-                : (value) {
-                    setState(() {
-                      _urgent = value;
-                    });
-                  },
-            activeTrackColor: const Color(0xFFF58B82),
-            activeThumbColor: red,
-          ),
-        ],
       ),
     );
   }
