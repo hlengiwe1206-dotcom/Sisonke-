@@ -20,10 +20,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   bool isLoading = true;
   bool isSaving = false;
-  bool isUploadingImage = false;
 
   String? avatarUrl;
-  String? userEmail;
 
   @override
   void initState() {
@@ -50,30 +48,34 @@ class _ProfileScreenState extends State<ProfileScreen> {
         return;
       }
 
-      userEmail = user.email;
-
-      final data = await supabase
+      final profile = await supabase
           .from('profiles')
           .select()
           .eq('id', user.id)
           .maybeSingle();
 
-      if (data != null) {
-        nameController.text =
-            data['full_name']?.toString() ?? '';
+      if (profile != null) {
+        if (mounted) {
+          setState(() {
+            nameController.text =
+                profile['full_name']?.toString() ?? '';
 
-        avatarUrl =
-            data['avatar_url']?.toString();
+            avatarUrl =
+                profile['avatar_url']?.toString();
+
+            isLoading = false;
+          });
+        }
       } else {
-        nameController.text =
-            user.userMetadata?['full_name']?.toString() ??
-                '';
-      }
+        if (mounted) {
+          setState(() {
+            nameController.text =
+                user.userMetadata?['full_name']?.toString() ??
+                    '';
 
-      if (mounted) {
-        setState(() {
-          isLoading = false;
-        });
+            isLoading = false;
+          });
+        }
       }
     } catch (error) {
       debugPrint('Error loading profile: $error');
@@ -82,73 +84,95 @@ class _ProfileScreenState extends State<ProfileScreen> {
         setState(() {
           isLoading = false;
         });
+      }
+    }
+  }
 
+  Future<void> pickImage(ImageSource source) async {
+    try {
+      final XFile? pickedImage =
+          await picker.pickImage(
+        source: source,
+        imageQuality: 75,
+        maxWidth: 1000,
+      );
+
+      if (pickedImage == null) return;
+
+      await uploadProfileImage(pickedImage);
+    } catch (error) {
+      debugPrint('Error picking image: $error');
+
+      if (mounted) {
         showMessage(
-          'Could not load your profile.',
+          'Unable to select image',
           isError: true,
         );
       }
     }
   }
 
-  Future<void> saveProfile() async {
-    final user = supabase.auth.currentUser;
-
-    if (user == null) {
-      showMessage(
-        'You are not logged in.',
-        isError: true,
-      );
-      return;
-    }
-
-    final fullName = nameController.text.trim();
-
-    if (fullName.isEmpty) {
-      showMessage(
-        'Please enter your name.',
-        isError: true,
-      );
-      return;
-    }
-
+  Future<void> uploadProfileImage(
+    XFile pickedImage,
+  ) async {
     try {
-      setState(() {
-        isSaving = true;
-      });
+      final user = supabase.auth.currentUser;
 
-      await supabase
-          .from('profiles')
-          .upsert({
-        'id': user.id,
-        'full_name': fullName,
-        'avatar_url': avatarUrl,
-        'updated_at':
-            DateTime.now().toIso8601String(),
-      });
+      if (user == null) return;
 
-      await supabase.auth.updateUser(
-        UserAttributes(
-          data: {
-            'full_name': fullName,
-          },
-        ),
-      );
+      if (mounted) {
+        setState(() {
+          isSaving = true;
+        });
+      }
 
-      if (!mounted) return;
+      final file = File(pickedImage.path);
 
-      showMessage(
-        'Profile updated successfully.',
-      );
+      final fileExtension =
+          pickedImage.name.split('.').last;
+
+      final filePath =
+          '${user.id}/avatar.$fileExtension';
+
+      await supabase.storage
+          .from('avatars')
+          .upload(
+            filePath,
+            file,
+            fileOptions: const FileOptions(
+              upsert: true,
+            ),
+          );
+
+      final publicUrl = supabase.storage
+          .from('avatars')
+          .getPublicUrl(filePath);
+
+      if (mounted) {
+        setState(() {
+          avatarUrl =
+              '$publicUrl?t=${DateTime.now().millisecondsSinceEpoch}';
+        });
+      }
+
+      await saveProfile(showSuccessMessage: false);
+
+      if (mounted) {
+        showMessage(
+          'Profile picture updated successfully',
+        );
+      }
     } catch (error) {
-      debugPrint('Error saving profile: $error');
-
-      if (!mounted) return;
-
-      showMessage(
-        'Could not save your profile.',
-        isError: true,
+      debugPrint(
+        'Error uploading profile picture: $error',
       );
+
+      if (mounted) {
+        showMessage(
+          'Unable to upload profile picture',
+          isError: true,
+        );
+      }
     } finally {
       if (mounted) {
         setState(() {
@@ -158,131 +182,137 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
-  Future<void> pickProfilePicture() async {
+  Future<void> saveProfile({
+    bool showSuccessMessage = true,
+  }) async {
     try {
-      final XFile? image = await picker.pickImage(
-        source: ImageSource.gallery,
-        imageQuality: 80,
-        maxWidth: 1000,
-      );
+      final user = supabase.auth.currentUser;
 
-      if (image == null) {
-        return;
+      if (user == null) return;
+
+      if (mounted) {
+        setState(() {
+          isSaving = true;
+        });
       }
 
-      await uploadProfilePicture(image);
-    } catch (error) {
-      debugPrint('Error picking image: $error');
-
-      if (!mounted) return;
-
-      showMessage(
-        'Could not select image.',
-        isError: true,
-      );
-    }
-  }
-
-  Future<void> uploadProfilePicture(
-    XFile image,
-  ) async {
-    final user = supabase.auth.currentUser;
-
-    if (user == null) {
-      showMessage(
-        'You are not logged in.',
-        isError: true,
-      );
-      return;
-    }
-
-    try {
-      setState(() {
-        isUploadingImage = true;
-      });
-
-      final file = File(image.path);
-
-      final fileExtension =
-          image.path.split('.').last.toLowerCase();
-
-      final fileName =
-          '${user.id}/profile.$fileExtension';
-
-      await supabase.storage
-          .from('profile-images')
-          .upload(
-            fileName,
-            file,
-            fileOptions: FileOptions(
-              upsert: true,
-              contentType:
-                  'image/$fileExtension',
-            ),
-          );
-
-      final publicUrl = supabase.storage
-          .from('profile-images')
-          .getPublicUrl(fileName);
-
-      avatarUrl = publicUrl;
+      final fullName =
+          nameController.text.trim();
 
       await supabase
           .from('profiles')
-          .upsert({
-        'id': user.id,
-        'full_name':
-            nameController.text.trim(),
-        'avatar_url': avatarUrl,
-        'updated_at':
-            DateTime.now().toIso8601String(),
-      });
-
-      if (!mounted) return;
-
-      setState(() {});
-
-      showMessage(
-        'Profile picture updated.',
+          .upsert(
+        {
+          'id': user.id,
+          'full_name': fullName,
+          'avatar_url': avatarUrl,
+          'updated_at':
+              DateTime.now().toIso8601String(),
+        },
+        onConflict: 'id',
       );
+
+      await supabase.auth.updateUser(
+        UserAttributes(
+          data: {
+            'full_name': fullName,
+            'avatar_url': avatarUrl,
+          },
+        ),
+      );
+
+      if (mounted && showSuccessMessage) {
+        showMessage(
+          'Profile saved successfully',
+        );
+      }
     } catch (error) {
-      debugPrint(
-        'Error uploading profile image: $error',
-      );
+      debugPrint('Error saving profile: $error');
 
-      if (!mounted) return;
-
-      showMessage(
-        'Could not upload profile picture.',
-        isError: true,
-      );
+      if (mounted) {
+        showMessage(
+          'Unable to save profile',
+          isError: true,
+        );
+      }
     } finally {
       if (mounted) {
         setState(() {
-          isUploadingImage = false;
+          isSaving = false;
         });
       }
     }
   }
 
-  Future<void> logout() async {
+  void showImageOptions() {
+    showModalBottomSheet(
+      context: context,
+      builder: (context) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(
+              vertical: 12,
+            ),
+            child: Wrap(
+              children: [
+                ListTile(
+                  leading: const Icon(
+                    Icons.photo_library,
+                  ),
+                  title: const Text(
+                    'Choose from gallery',
+                  ),
+                  onTap: () {
+                    Navigator.pop(context);
+
+                    pickImage(
+                      ImageSource.gallery,
+                    );
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(
+                    Icons.camera_alt,
+                  ),
+                  title: const Text(
+                    'Take a photo',
+                  ),
+                  onTap: () {
+                    Navigator.pop(context);
+
+                    pickImage(
+                      ImageSource.camera,
+                    );
+                  },
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> signOut() async {
     try {
       await supabase.auth.signOut();
 
       if (!mounted) return;
 
-      Navigator.of(context).popUntil(
-        (route) => route.isFirst,
+      Navigator.of(context)
+          .pushNamedAndRemoveUntil(
+        '/auth',
+        (route) => false,
       );
     } catch (error) {
-      debugPrint('Logout error: $error');
+      debugPrint('Error signing out: $error');
 
-      if (!mounted) return;
-
-      showMessage(
-        'Could not log out.',
-        isError: true,
-      );
+      if (mounted) {
+        showMessage(
+          'Unable to sign out',
+          isError: true,
+        );
+      }
     }
   }
 
@@ -290,269 +320,186 @@ class _ProfileScreenState extends State<ProfileScreen> {
     String message, {
     bool isError = false,
   }) {
-    if (!mounted) return;
-
     ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(
-        SnackBar(
-          content: Text(message),
-          backgroundColor:
-              isError ? Colors.red : Colors.green,
-        ),
-      );
-  }
-
-  String getInitials() {
-    final name = nameController.text.trim();
-
-    if (name.isEmpty) {
-      return 'S';
-    }
-
-    final parts = name.split(' ');
-
-    if (parts.length == 1) {
-      return parts.first
-          .substring(0, 1)
-          .toUpperCase();
-    }
-
-    return '${parts.first.substring(0, 1)}'
-        '${parts.last.substring(0, 1)}'
-        .toUpperCase();
+        .showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor:
+            isError ? Colors.red : Colors.green,
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
+    final user = supabase.auth.currentUser;
+
+    if (isLoading) {
+      return const Scaffold(
+        body: Center(
+          child: CircularProgressIndicator(),
+        ),
+      );
+    }
+
     return Scaffold(
       appBar: AppBar(
         title: const Text(
           'My Profile',
         ),
+        centerTitle: true,
       ),
-      body: isLoading
-          ? const Center(
-              child:
-                  CircularProgressIndicator(),
-            )
-          : SafeArea(
-              child: SingleChildScrollView(
-                padding:
-                    const EdgeInsets.all(24),
-                child: Column(
-                  crossAxisAlignment:
-                      CrossAxisAlignment.stretch,
+      body: SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            children: [
+              const SizedBox(height: 20),
+
+              GestureDetector(
+                onTap: isSaving
+                    ? null
+                    : showImageOptions,
+                child: Stack(
                   children: [
-
-                    const SizedBox(height: 20),
-
-                    Center(
-                      child: Stack(
-                        children: [
-
-                          CircleAvatar(
-                            radius: 65,
-                            backgroundColor:
-                                Theme.of(context)
-                                    .colorScheme
-                                    .primaryContainer,
-                            backgroundImage:
-                                avatarUrl != null &&
-                                        avatarUrl!
-                                            .isNotEmpty
-                                    ? NetworkImage(
-                                        avatarUrl!,
-                                      )
-                                    : null,
-                            child:
-                                avatarUrl == null ||
-                                        avatarUrl!
-                                            .isEmpty
-                                    ? Text(
-                                        getInitials(),
-                                        style:
-                                            const TextStyle(
-                                          fontSize: 38,
-                                          fontWeight:
-                                              FontWeight.bold,
-                                        ),
-                                      )
-                                    : null,
-                          ),
-
-                          Positioned(
-                            right: 0,
-                            bottom: 0,
-                            child: InkWell(
-                              onTap:
-                                  isUploadingImage
-                                      ? null
-                                      : pickProfilePicture,
-                              borderRadius:
-                                  BorderRadius.circular(
-                                30,
-                              ),
-                              child: Container(
-                                width: 46,
-                                height: 46,
-                                decoration:
-                                    BoxDecoration(
-                                  color:
-                                      Theme.of(context)
-                                          .colorScheme
-                                          .primary,
-                                  shape:
-                                      BoxShape.circle,
-                                  border:
-                                      Border.all(
-                                    color: Colors.white,
-                                    width: 3,
-                                  ),
-                                ),
-                                child:
-                                    isUploadingImage
-                                        ? const Padding(
-                                            padding:
-                                                EdgeInsets.all(
-                                              12,
-                                            ),
-                                            child:
-                                                CircularProgressIndicator(
-                                              strokeWidth:
-                                                  2,
-                                              color:
-                                                  Colors.white,
-                                            ),
-                                          )
-                                        : const Icon(
-                                            Icons.camera_alt,
-                                            color:
-                                                Colors.white,
-                                          ),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
+                    CircleAvatar(
+                      radius: 65,
+                      backgroundColor:
+                          Colors.grey.shade300,
+                      backgroundImage:
+                          avatarUrl != null &&
+                                  avatarUrl!.isNotEmpty
+                              ? NetworkImage(
+                                  avatarUrl!,
+                                )
+                              : null,
+                      child: avatarUrl == null ||
+                              avatarUrl!.isEmpty
+                          ? const Icon(
+                              Icons.person,
+                              size: 70,
+                              color: Colors.grey,
+                            )
+                          : null,
                     ),
 
-                    const SizedBox(height: 20),
-
-                    Center(
-                      child: Text(
-                        'Profile Picture',
-                        style:
-                            Theme.of(context)
-                                .textTheme
-                                .titleMedium,
-                      ),
-                    ),
-
-                    const SizedBox(height: 6),
-
-                    Center(
-                      child: Text(
-                        'This picture will be visible to other Sisonke users.',
-                        textAlign: TextAlign.center,
-                        style:
-                            Theme.of(context)
-                                .textTheme
-                                .bodySmall,
-                      ),
-                    ),
-
-                    const SizedBox(height: 40),
-
-                    TextField(
-                      controller: nameController,
-                      textCapitalization:
-                          TextCapitalization.words,
-                      onChanged: (_) {
-                        setState(() {});
-                      },
-                      decoration:
-                          const InputDecoration(
-                        labelText:
-                            'Your Full Name',
-                        hintText:
-                            'Enter your full name',
-                        prefixIcon:
-                            Icon(Icons.person),
-                        border:
-                            OutlineInputBorder(),
-                      ),
-                    ),
-
-                    const SizedBox(height: 20),
-
-                    TextField(
-                      controller:
-                          TextEditingController(
-                        text: userEmail ?? '',
-                      ),
-                      enabled: false,
-                      decoration:
-                          const InputDecoration(
-                        labelText: 'Email',
-                        prefixIcon:
-                            Icon(Icons.email),
-                        border:
-                            OutlineInputBorder(),
-                      ),
-                    ),
-
-                    const SizedBox(height: 30),
-
-                    SizedBox(
-                      height: 54,
-                      child: ElevatedButton(
-                        onPressed:
-                            isSaving
-                                ? null
-                                : saveProfile,
-                        child:
-                            isSaving
-                                ? const SizedBox(
-                                    width: 24,
-                                    height: 24,
-                                    child:
-                                        CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                    ),
-                                  )
-                                : const Text(
-                                    'Save Profile',
-                                    style:
-                                        TextStyle(
-                                      fontSize: 16,
-                                      fontWeight:
-                                          FontWeight.bold,
-                                    ),
-                                  ),
-                      ),
-                    ),
-
-                    const SizedBox(height: 16),
-
-                    SizedBox(
-                      height: 54,
-                      child: OutlinedButton.icon(
-                        onPressed: logout,
-                        icon:
-                            const Icon(Icons.logout),
-                        label:
-                            const Text(
-                          'Log Out',
+                    Positioned(
+                      right: 0,
+                      bottom: 0,
+                      child: Container(
+                        padding:
+                            const EdgeInsets.all(8),
+                        decoration: const BoxDecoration(
+                          color: Colors.black,
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(
+                          Icons.camera_alt,
+                          color: Colors.white,
+                          size: 20,
                         ),
                       ),
                     ),
-
-                    const SizedBox(height: 30),
                   ],
                 ),
               ),
-            ),
+
+              const SizedBox(height: 14),
+
+              Text(
+                'Tap your picture to change it',
+                style: TextStyle(
+                  color: Colors.grey.shade600,
+                ),
+              ),
+
+              const SizedBox(height: 35),
+
+              TextField(
+                controller: nameController,
+                textCapitalization:
+                    TextCapitalization.words,
+                decoration: InputDecoration(
+                  labelText: 'Full Name',
+                  prefixIcon: const Icon(
+                    Icons.person_outline,
+                  ),
+                  border: OutlineInputBorder(
+                    borderRadius:
+                        BorderRadius.circular(12),
+                  ),
+                ),
+              ),
+
+              const SizedBox(height: 20),
+
+              TextField(
+                enabled: false,
+                controller: TextEditingController(
+                  text: user?.email ?? '',
+                ),
+                decoration: InputDecoration(
+                  labelText: 'Email Address',
+                  prefixIcon: const Icon(
+                    Icons.email_outlined,
+                  ),
+                  border: OutlineInputBorder(
+                    borderRadius:
+                        BorderRadius.circular(12),
+                  ),
+                ),
+              ),
+
+              const SizedBox(height: 30),
+
+              SizedBox(
+                width: double.infinity,
+                height: 52,
+                child: ElevatedButton.icon(
+                  onPressed: isSaving
+                      ? null
+                      : saveProfile,
+                  icon: isSaving
+                      ? const SizedBox(
+                          height: 20,
+                          width: 20,
+                          child:
+                              CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : const Icon(
+                          Icons.save,
+                        ),
+                  label: Text(
+                    isSaving
+                        ? 'Saving...'
+                        : 'Save Profile',
+                  ),
+                ),
+              ),
+
+              const SizedBox(height: 18),
+
+              SizedBox(
+                width: double.infinity,
+                height: 52,
+                child: OutlinedButton.icon(
+                  onPressed:
+                      isSaving ? null : signOut,
+                  icon: const Icon(
+                    Icons.logout,
+                  ),
+                  label: const Text(
+                    'Sign Out',
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
-} 
+}
