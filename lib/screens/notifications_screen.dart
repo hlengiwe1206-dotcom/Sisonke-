@@ -5,7 +5,8 @@ class NotificationsScreen extends StatefulWidget {
   const NotificationsScreen({super.key});
 
   @override
-  State<NotificationsScreen> createState() => _NotificationsScreenState();
+  State<NotificationsScreen> createState() =>
+      _NotificationsScreenState();
 }
 
 class _NotificationsScreenState extends State<NotificationsScreen> {
@@ -14,10 +15,14 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   bool isLoading = true;
   List<Map<String, dynamic>> notifications = [];
 
+  RealtimeChannel? notificationChannel;
+
   @override
   void initState() {
     super.initState();
+
     loadNotifications();
+    listenForNotifications();
   }
 
   Future<void> loadNotifications() async {
@@ -25,9 +30,11 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       final user = supabase.auth.currentUser;
 
       if (user == null) {
-        setState(() {
-          isLoading = false;
-        });
+        if (mounted) {
+          setState(() {
+            isLoading = false;
+          });
+        }
         return;
       }
 
@@ -37,17 +44,52 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
           .eq('user_id', user.id)
           .order('created_at', ascending: false);
 
-      setState(() {
-        notifications = List<Map<String, dynamic>>.from(data);
-        isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          notifications =
+              List<Map<String, dynamic>>.from(data);
+          isLoading = false;
+        });
+      }
     } catch (error) {
-      setState(() {
-        isLoading = false;
-      });
-
       debugPrint('Error loading notifications: $error');
+
+      if (mounted) {
+        setState(() {
+          isLoading = false;
+        });
+      }
     }
+  }
+
+  void listenForNotifications() {
+    final user = supabase.auth.currentUser;
+
+    if (user == null) return;
+
+    notificationChannel = supabase
+        .channel('notifications-${user.id}')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.insert,
+          schema: 'public',
+          table: 'notifications',
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'user_id',
+            value: user.id,
+          ),
+          callback: (payload) {
+            if (!mounted) return;
+
+            final newNotification =
+                Map<String, dynamic>.from(payload.newRecord);
+
+            setState(() {
+              notifications.insert(0, newNotification);
+            });
+          },
+        )
+        .subscribe();
   }
 
   Future<void> markAsRead(String notificationId) async {
@@ -60,17 +102,48 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
           })
           .eq('id', notificationId);
 
-      await loadNotifications();
+      if (!mounted) return;
+
+      setState(() {
+        final index = notifications.indexWhere(
+          (notification) =>
+              notification['id'].toString() == notificationId,
+        );
+
+        if (index != -1) {
+          notifications[index]['is_read'] = true;
+          notifications[index]['read_at'] =
+              DateTime.now().toIso8601String();
+        }
+      });
     } catch (error) {
       debugPrint('Error marking notification as read: $error');
     }
   }
 
   @override
+  void dispose() {
+    if (notificationChannel != null) {
+      supabase.removeChannel(notificationChannel!);
+    }
+
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final unreadCount = notifications.where(
+      (notification) =>
+          notification['is_read'] == false,
+    ).length;
+
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Notifications'),
+        title: Text(
+          unreadCount > 0
+              ? 'Notifications ($unreadCount)'
+              : 'Notifications',
+        ),
       ),
       body: isLoading
           ? const Center(
@@ -91,10 +164,12 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                     separatorBuilder: (context, index) =>
                         const SizedBox(height: 10),
                     itemBuilder: (context, index) {
-                      final notification = notifications[index];
+                      final notification =
+                          notifications[index];
 
                       final isRead =
-                          notification['is_read'] as bool? ?? false;
+                          notification['is_read'] as bool? ??
+                              false;
 
                       return Card(
                         child: ListTile(
@@ -106,7 +181,8 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                             ),
                           ),
                           title: Text(
-                            notification['title'] ?? 'Notification',
+                            notification['title'] ??
+                                'Notification',
                             style: TextStyle(
                               fontWeight: isRead
                                   ? FontWeight.normal
