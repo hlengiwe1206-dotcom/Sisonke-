@@ -1,3 +1,5 @@
+import 'package:flutter/material.dart';
+
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
 
@@ -13,7 +15,9 @@ class _HomeScreenState extends State<HomeScreen> {
         title: const Text('Sisonke'),
       ),
       body: const Center(
-        child: Text('Home Screen'),
+        child: Text(
+          'Home Screen',
+        ),
       ),
     );
   }
