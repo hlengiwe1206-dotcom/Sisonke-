@@ -16,201 +16,168 @@ class _HelpExchangeScreenState
   final SupabaseClient _supabase =
       Supabase.instance.client;
 
-  late Future<List<Map<String, dynamic>>>
-      _requestsFuture;
+  bool _isLoading = true;
+  String? _errorMessage;
 
-  String _selectedFilter = 'All';
+  List<Map<String, dynamic>> _allRequests = [];
 
-  final List<String> _filters = [
-    'All',
-    'Open',
-    'Urgent',
-    'Completed',
-  ];
+  String _searchQuery = '';
+  String _selectedCategory = 'All';
+  String _selectedLocation = 'All Locations';
+
+  final TextEditingController _searchController =
+      TextEditingController();
+
+  RealtimeChannel? _requestsChannel;
 
   @override
   void initState() {
     super.initState();
 
-    _requestsFuture = _loadRequests();
+    _loadRequests();
+    _listenForRequests();
   }
 
   // ============================================================
-  // LOAD HELP REQUESTS + USER PROFILES
+  // LOAD REQUESTS
   // ============================================================
 
-  Future<List<Map<String, dynamic>>>
-      _loadRequests() async {
+  Future<void> _loadRequests() async {
+    if (mounted) {
+      setState(() {
+        _isLoading = true;
+        _errorMessage = null;
+      });
+    }
+
     try {
       // --------------------------------------------------------
-      // LOAD HELP REQUESTS
+      // LOAD ACTIVE HELP REQUESTS ONLY
       // --------------------------------------------------------
 
-      final List<dynamic> requestData =
-          await _supabase
-              .from('help_requests')
-              .select()
-              .order(
-                'created_at',
-                ascending: false,
-              );
+      final requestData = await _supabase
+          .from('help_requests')
+          .select()
+          .eq('status', 'open')
+          .order(
+            'created_at',
+            ascending: false,
+          );
 
-      final List<Map<String, dynamic>>
-          requests = requestData
-              .map(
-                (item) =>
-                    Map<String, dynamic>.from(item),
-              )
-              .toList();
-
-      if (requests.isEmpty) {
-        return requests;
-      }
+      final requests =
+          List<Map<String, dynamic>>.from(
+        requestData,
+      );
 
       // --------------------------------------------------------
-      // COLLECT USER IDS
+      // LOAD POSTER PROFILES
       // --------------------------------------------------------
 
-      final List<String> userIds = requests
+      final userIds = requests
           .map(
             (request) =>
                 _safeText(request['user_id']),
           )
           .where(
-            (userId) => userId.isNotEmpty,
+            (id) => id.isNotEmpty,
           )
           .toSet()
           .toList();
 
-      if (userIds.isEmpty) {
-        return requests;
-      }
+      final profilesById =
+          <String, Map<String, dynamic>>{};
 
-      // --------------------------------------------------------
-      // LOAD PROFILES
-      // --------------------------------------------------------
+      if (userIds.isNotEmpty) {
+        final profileData = await _supabase
+            .from('profiles')
+            .select(
+              'id, full_name, avatar_url',
+            )
+            .inFilter(
+              'id',
+              userIds,
+            );
 
-      final List<dynamic> profileData =
-          await _supabase
-              .from('profiles')
-              .select(
-                'id, full_name, avatar_url',
-              )
-              .inFilter(
-                'id',
-                userIds,
-              );
+        for (final item in profileData) {
+          final profile =
+              Map<String, dynamic>.from(item);
 
-      // --------------------------------------------------------
-      // CREATE PROFILE LOOKUP MAP
-      // --------------------------------------------------------
+          final profileId =
+              _safeText(profile['id']);
 
-      final Map<String, Map<String, dynamic>>
-          profilesById = {};
-
-      for (final profile in profileData) {
-        final Map<String, dynamic> profileMap =
-            Map<String, dynamic>.from(profile);
-
-        final String profileId =
-            _safeText(profileMap['id']);
-
-        if (profileId.isNotEmpty) {
-          profilesById[profileId] = profileMap;
+          if (profileId.isNotEmpty) {
+            profilesById[profileId] = profile;
+          }
         }
       }
 
       // --------------------------------------------------------
-      // ATTACH PROFILE DATA TO EACH REQUEST
+      // ATTACH PROFILE INFORMATION
       // --------------------------------------------------------
 
       for (final request in requests) {
-        final String userId =
+        final userId =
             _safeText(request['user_id']);
 
-        final Map<String, dynamic>? profile =
+        final profile =
             profilesById[userId];
 
-        if (profile != null) {
-          request['poster_name'] =
-              _safeText(
-            profile['full_name'],
-            'Sisonke Member',
-          );
+        request['poster_name'] =
+            _safeText(
+          profile?['full_name'],
+          'Sisonke Member',
+        );
 
-          request['poster_avatar_url'] =
-              _safeText(
-            profile['avatar_url'],
-          );
-        } else {
-          request['poster_name'] =
-              'Sisonke Member';
-
-          request['poster_avatar_url'] = '';
-        }
+        request['poster_avatar_url'] =
+            _safeText(
+          profile?['avatar_url'],
+        );
       }
 
-      return requests;
+      if (!mounted) return;
+
+      setState(() {
+        _allRequests = requests;
+        _isLoading = false;
+      });
     } catch (error) {
-      throw Exception(
-        'Unable to load help requests: $error',
+      debugPrint(
+        'Error loading Help Exchange: $error',
       );
+
+      if (!mounted) return;
+
+      setState(() {
+        _isLoading = false;
+        _errorMessage = error.toString();
+      });
     }
   }
 
   // ============================================================
-  // REFRESH REQUESTS
+  // REALTIME
+  // ============================================================
+
+  void _listenForRequests() {
+    _requestsChannel = _supabase
+        .channel('help-exchange-live')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'help_requests',
+          callback: (payload) {
+            _loadRequests();
+          },
+        )
+        .subscribe();
+  }
+
+  // ============================================================
+  // REFRESH
   // ============================================================
 
   Future<void> _refreshRequests() async {
-    setState(() {
-      _requestsFuture = _loadRequests();
-    });
-
-    await _requestsFuture;
-  }
-
-  // ============================================================
-  // FILTER REQUESTS
-  // ============================================================
-
-  List<Map<String, dynamic>> _filterRequests(
-    List<Map<String, dynamic>> requests,
-  ) {
-    if (_selectedFilter == 'All') {
-      return requests;
-    }
-
-    return requests.where((request) {
-      final String status =
-          _safeText(
-        request['status'],
-      ).toLowerCase();
-
-      final bool urgent =
-          _safeBool(
-        request['urgent'],
-      );
-
-      switch (_selectedFilter) {
-        case 'Open':
-          return status.isEmpty ||
-              status == 'open' ||
-              status == 'pending' ||
-              status == 'active';
-
-        case 'Urgent':
-          return urgent;
-
-        case 'Completed':
-          return status == 'completed' ||
-              status == 'closed' ||
-              status == 'resolved';
-
-        default:
-          return true;
-      }
-    }).toList();
+    await _loadRequests();
   }
 
   // ============================================================
@@ -225,11 +192,11 @@ class _HelpExchangeScreenState
       return fallback;
     }
 
-    final String text =
+    final text =
         value.toString().trim();
 
     if (text.isEmpty ||
-        text == 'null') {
+        text.toLowerCase() == 'null') {
       return fallback;
     }
 
@@ -249,12 +216,147 @@ class _HelpExchangeScreenState
       return value;
     }
 
-    final String text =
-        value.toString().toLowerCase();
+    final text =
+        value.toString().trim().toLowerCase();
 
     return text == 'true' ||
         text == '1' ||
         text == 'yes';
+  }
+
+  // ============================================================
+  // AVAILABLE CATEGORIES
+  // ============================================================
+
+  List<String> _categories() {
+    final categories = _allRequests
+        .map(
+          (request) =>
+              _safeText(request['category']),
+        )
+        .where(
+          (category) => category.isNotEmpty,
+        )
+        .toSet()
+        .toList();
+
+    categories.sort();
+
+    return [
+      'All',
+      ...categories,
+    ];
+  }
+
+  // ============================================================
+  // AVAILABLE LOCATIONS
+  // ============================================================
+
+  List<String> _locations() {
+    final locations = _allRequests
+        .map(
+          (request) =>
+              _safeText(request['location']),
+        )
+        .where(
+          (location) => location.isNotEmpty,
+        )
+        .toSet()
+        .toList();
+
+    locations.sort();
+
+    return [
+      'All Locations',
+      ...locations,
+    ];
+  }
+
+  // ============================================================
+  // FILTER REQUESTS
+  // ============================================================
+
+  List<Map<String, dynamic>>
+      _filteredRequests() {
+    final query =
+        _searchQuery.trim().toLowerCase();
+
+    return _allRequests.where((request) {
+      final status =
+          _safeText(
+        request['status'],
+      ).toLowerCase();
+
+      // --------------------------------------------------------
+      // ONLY ACTIVE OPEN REQUESTS
+      // --------------------------------------------------------
+
+      if (status != 'open') {
+        return false;
+      }
+
+      // --------------------------------------------------------
+      // CATEGORY FILTER
+      // --------------------------------------------------------
+
+      final category =
+          _safeText(
+        request['category'],
+      );
+
+      if (_selectedCategory != 'All' &&
+          category.toLowerCase() !=
+              _selectedCategory.toLowerCase()) {
+        return false;
+      }
+
+      // --------------------------------------------------------
+      // LOCATION FILTER
+      // --------------------------------------------------------
+
+      final location =
+          _safeText(
+        request['location'],
+      );
+
+      if (_selectedLocation !=
+              'All Locations' &&
+          location.toLowerCase() !=
+              _selectedLocation.toLowerCase()) {
+        return false;
+      }
+
+      // --------------------------------------------------------
+      // SEARCH
+      // --------------------------------------------------------
+
+      if (query.isNotEmpty) {
+        final title =
+            _safeText(
+          request['title'],
+        ).toLowerCase();
+
+        final description =
+            _safeText(
+          request['description'],
+        ).toLowerCase();
+
+        final posterName =
+            _safeText(
+          request['poster_name'],
+        ).toLowerCase();
+
+        final searchableText =
+            '$title $description $category '
+            '$location $posterName';
+
+        if (!searchableText.contains(query)) {
+          return false;
+        }
+      }
+
+      return true;
+    }).toList();
   }
 
   // ============================================================
@@ -267,17 +369,15 @@ class _HelpExchangeScreenState
     }
 
     try {
-      final DateTime date =
-          value is DateTime
-              ? value
-              : DateTime.parse(
-                  value.toString(),
-                );
+      final date = value is DateTime
+          ? value
+          : DateTime.parse(
+              value.toString(),
+            );
 
-      final DateTime now =
-          DateTime.now();
+      final now = DateTime.now();
 
-      final Duration difference =
+      final difference =
           now.difference(date);
 
       if (difference.inMinutes < 1) {
@@ -309,63 +409,100 @@ class _HelpExchangeScreenState
   }
 
   // ============================================================
-  // STATUS COLOUR
+  // OPEN DETAILS
   // ============================================================
 
-  Color _statusColor(
-    String status,
-  ) {
-    switch (status.toLowerCase()) {
-      case 'completed':
-      case 'closed':
-      case 'resolved':
-        return Colors.green;
-
-      case 'pending':
-        return Colors.orange;
-
-      case 'open':
-      case 'active':
-        return Colors.blue;
-
-      default:
-        return Colors.grey;
-    }
-  }
-
-  // ============================================================
-  // OPEN REQUEST DETAILS
-  // ============================================================
-
-  void _openRequest(
+  Future<void> _openRequest(
     Map<String, dynamic> request,
-  ) {
-    Navigator.push(
+  ) async {
+    await Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) =>
+        builder: (_) =>
             HelpRequestDetailScreen(
           request: request,
         ),
       ),
     );
+
+    _loadRequests();
   }
 
   // ============================================================
-  // BUILD SCREEN
+  // CATEGORY ICON
+  // ============================================================
+
+  IconData _categoryIcon(
+    String category,
+  ) {
+    switch (category.toLowerCase()) {
+      case 'food':
+      case 'food & essentials':
+        return Icons.restaurant_outlined;
+
+      case 'transport':
+        return Icons.directions_car_outlined;
+
+      case 'jobs':
+      case 'employment':
+        return Icons.work_outline;
+
+      case 'education':
+        return Icons.school_outlined;
+
+      case 'health':
+      case 'health & wellness':
+        return Icons.favorite_outline;
+
+      case 'emergency':
+        return Icons.warning_amber_outlined;
+
+      case 'housing':
+        return Icons.home_outlined;
+
+      case 'business':
+      case 'business support':
+        return Icons.business_outlined;
+
+      default:
+        return Icons.volunteer_activism_outlined;
+    }
+  }
+
+  // ============================================================
+  // DISPOSE
   // ============================================================
 
   @override
-  Widget build(
-    BuildContext context,
-  ) {
+  void dispose() {
+    _searchController.dispose();
+
+    if (_requestsChannel != null) {
+      _supabase.removeChannel(
+        _requestsChannel!,
+      );
+    }
+
+    super.dispose();
+  }
+
+  // ============================================================
+  // BUILD
+  // ============================================================
+
+  @override
+  Widget build(BuildContext context) {
+    final filteredRequests =
+        _filteredRequests();
+
     return Scaffold(
       backgroundColor:
           const Color(0xFFF6F7FB),
 
       appBar: AppBar(
         elevation: 0,
-        backgroundColor: Colors.white,
+        backgroundColor:
+            Colors.white,
         foregroundColor:
             const Color(0xFF1F2937),
 
@@ -380,11 +517,9 @@ class _HelpExchangeScreenState
         actions: [
           IconButton(
             tooltip: 'Refresh',
-            onPressed:
-                _refreshRequests,
-            icon: const Icon(
-              Icons.refresh,
-            ),
+            onPressed: _refreshRequests,
+            icon:
+                const Icon(Icons.refresh),
           ),
         ],
       ),
@@ -392,181 +527,310 @@ class _HelpExchangeScreenState
       body: SafeArea(
         child: Column(
           children: [
-            // ==================================================
-            // FILTERS
-            // ==================================================
+            _buildSearchArea(),
 
-            Container(
-              width: double.infinity,
-              color: Colors.white,
+            _buildCategoryFilters(),
 
-              padding:
-                  const EdgeInsets.fromLTRB(
-                16,
-                8,
-                16,
-                16,
-              ),
-
-              child:
-                  SingleChildScrollView(
-                scrollDirection:
-                    Axis.horizontal,
-
-                child: Row(
-                  children:
-                      _filters.map(
-                    (filter) {
-                      final bool selected =
-                          filter ==
-                              _selectedFilter;
-
-                      return Padding(
-                        padding:
-                            const EdgeInsets.only(
-                          right: 10,
-                        ),
-
-                        child:
-                            ChoiceChip(
-                          label:
-                              Text(filter),
-
-                          selected:
-                              selected,
-
-                          selectedColor:
-                              const Color(
-                            0xFFFFB300,
-                          ),
-
-                          labelStyle:
-                              TextStyle(
-                            color: selected
-                                ? Colors.white
-                                : const Color(
-                                    0xFF374151,
-                                  ),
-                            fontWeight:
-                                FontWeight.w600,
-                          ),
-
-                          onSelected:
-                              (bool value) {
-                            if (!value) {
-                              return;
-                            }
-
-                            setState(() {
-                              _selectedFilter =
-                                  filter;
-                            });
-                          },
-                        ),
-                      );
-                    },
-                  ).toList(),
-                ),
-              ),
-            ),
-
-            // ==================================================
-            // REQUEST LIST
-            // ==================================================
+            _buildLocationFilter(),
 
             Expanded(
-              child: FutureBuilder<
-                  List<Map<String, dynamic>>>(
-                future:
-                    _requestsFuture,
-
-                builder: (
-                  context,
-                  snapshot,
-                ) {
-                  // ============================================
-                  // LOADING
-                  // ============================================
-
-                  if (snapshot.connectionState ==
-                      ConnectionState.waiting) {
-                    return const Center(
+              child: _isLoading
+                  ? const Center(
                       child:
                           CircularProgressIndicator(),
-                    );
-                  }
+                    )
+                  : _errorMessage != null
+                      ? _buildErrorState()
+                      : filteredRequests.isEmpty
+                          ? _buildEmptyState()
+                          : RefreshIndicator(
+                              onRefresh:
+                                  _refreshRequests,
+                              child:
+                                  ListView.builder(
+                                physics:
+                                    const AlwaysScrollableScrollPhysics(),
 
-                  // ============================================
-                  // ERROR
-                  // ============================================
+                                padding:
+                                    const EdgeInsets.all(
+                                  16,
+                                ),
 
-                  if (snapshot.hasError) {
-                    return _buildErrorState(
-                      snapshot.error
-                          .toString(),
-                    );
-                  }
+                                itemCount:
+                                    filteredRequests
+                                        .length,
 
-                  final List<
-                          Map<String, dynamic>>
-                      requests =
-                      snapshot.data ?? [];
-
-                  final List<
-                          Map<String, dynamic>>
-                      filteredRequests =
-                      _filterRequests(
-                    requests,
-                  );
-
-                  // ============================================
-                  // EMPTY
-                  // ============================================
-
-                  if (filteredRequests
-                      .isEmpty) {
-                    return _buildEmptyState();
-                  }
-
-                  // ============================================
-                  // REQUEST LIST
-                  // ============================================
-
-                  return RefreshIndicator(
-                    onRefresh:
-                        _refreshRequests,
-
-                    child:
-                        ListView.builder(
-                      physics:
-                          const AlwaysScrollableScrollPhysics(),
-
-                      padding:
-                          const EdgeInsets.all(
-                        16,
-                      ),
-
-                      itemCount:
-                          filteredRequests
-                              .length,
-
-                      itemBuilder:
-                          (context, index) {
-                        final request =
-                            filteredRequests[
-                                index];
-
-                        return _buildRequestCard(
-                          request,
-                        );
-                      },
-                    ),
-                  );
-                },
-              ),
+                                itemBuilder:
+                                    (
+                                  context,
+                                  index,
+                                ) {
+                                  return _buildRequestCard(
+                                    filteredRequests[
+                                        index],
+                                  );
+                                },
+                              ),
+                            ),
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  // ============================================================
+  // SEARCH AREA
+  // ============================================================
+
+  Widget _buildSearchArea() {
+    return Container(
+      color: Colors.white,
+
+      padding:
+          const EdgeInsets.fromLTRB(
+        16,
+        12,
+        16,
+        10,
+      ),
+
+      child: TextField(
+        controller:
+            _searchController,
+
+        onChanged: (value) {
+          setState(() {
+            _searchQuery = value;
+          });
+        },
+
+        decoration: InputDecoration(
+          hintText:
+              'What can you help with?',
+
+          prefixIcon:
+              const Icon(Icons.search),
+
+          suffixIcon:
+              _searchQuery.isEmpty
+                  ? null
+                  : IconButton(
+                      icon: const Icon(
+                        Icons.clear,
+                      ),
+                      onPressed: () {
+                        _searchController.clear();
+
+                        setState(() {
+                          _searchQuery = '';
+                        });
+                      },
+                    ),
+
+          filled: true,
+
+          fillColor:
+              const Color(0xFFF3F4F6),
+
+          border:
+              OutlineInputBorder(
+            borderRadius:
+                BorderRadius.circular(
+              14,
+            ),
+
+            borderSide:
+                BorderSide.none,
+          ),
+
+          enabledBorder:
+              OutlineInputBorder(
+            borderRadius:
+                BorderRadius.circular(
+              14,
+            ),
+
+            borderSide:
+                BorderSide.none,
+          ),
+
+          focusedBorder:
+              OutlineInputBorder(
+            borderRadius:
+                BorderRadius.circular(
+              14,
+            ),
+
+            borderSide:
+                const BorderSide(
+              color:
+                  Color(0xFFFFB300),
+              width: 1.5,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ============================================================
+  // CATEGORY FILTERS
+  // ============================================================
+
+  Widget _buildCategoryFilters() {
+    final categories =
+        _categories();
+
+    return Container(
+      width: double.infinity,
+      color: Colors.white,
+
+      padding:
+          const EdgeInsets.fromLTRB(
+        16,
+        4,
+        16,
+        12,
+      ),
+
+      child: SingleChildScrollView(
+        scrollDirection:
+            Axis.horizontal,
+
+        child: Row(
+          children:
+              categories.map((category) {
+            final selected =
+                category ==
+                    _selectedCategory;
+
+            return Padding(
+              padding:
+                  const EdgeInsets.only(
+                right: 8,
+              ),
+
+              child: ChoiceChip(
+                label: Text(category),
+
+                selected: selected,
+
+                selectedColor:
+                    const Color(
+                  0xFFFFB300,
+                ),
+
+                backgroundColor:
+                    const Color(
+                  0xFFF3F4F6,
+                ),
+
+                labelStyle: TextStyle(
+                  color: selected
+                      ? Colors.white
+                      : const Color(
+                          0xFF374151,
+                        ),
+
+                  fontWeight:
+                      FontWeight.w600,
+                ),
+
+                onSelected: (value) {
+                  if (!value) return;
+
+                  setState(() {
+                    _selectedCategory =
+                        category;
+                  });
+                },
+              ),
+            );
+          }).toList(),
+        ),
+      ),
+    );
+  }
+
+  // ============================================================
+  // LOCATION FILTER
+  // ============================================================
+
+  Widget _buildLocationFilter() {
+    final locations =
+        _locations();
+
+    if (locations.length <= 1) {
+      return const SizedBox();
+    }
+
+    return Container(
+      width: double.infinity,
+
+      color:
+          const Color(0xFFF6F7FB),
+
+      padding:
+          const EdgeInsets.fromLTRB(
+        16,
+        12,
+        16,
+        8,
+      ),
+
+      child: Row(
+        children: [
+          const Icon(
+            Icons.location_on_outlined,
+            color:
+                Color(0xFF6B7280),
+          ),
+
+          const SizedBox(
+            width: 8,
+          ),
+
+          Expanded(
+            child: DropdownButtonHideUnderline(
+              child:
+                  DropdownButton<String>(
+                value:
+                    _selectedLocation,
+
+                isExpanded: true,
+
+                items:
+                    locations.map(
+                  (location) {
+                    return DropdownMenuItem<
+                        String>(
+                      value: location,
+
+                      child: Text(
+                        location,
+                        overflow:
+                            TextOverflow
+                                .ellipsis,
+                      ),
+                    );
+                  },
+                ).toList(),
+
+                onChanged: (value) {
+                  if (value == null) {
+                    return;
+                  }
+
+                  setState(() {
+                    _selectedLocation =
+                        value;
+                  });
+                },
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -578,54 +842,48 @@ class _HelpExchangeScreenState
   Widget _buildRequestCard(
     Map<String, dynamic> request,
   ) {
-    final String title =
+    final title =
         _safeText(
       request['title'],
       'Help Request',
     );
 
-    final String description =
+    final description =
         _safeText(
       request['description'],
       'No description provided.',
     );
 
-    final String category =
+    final category =
         _safeText(
       request['category'],
       'General',
     );
 
-    final String status =
-        _safeText(
-      request['status'],
-      'Open',
-    );
-
-    final bool urgent =
-        _safeBool(
-      request['urgent'],
-    );
-
-    final String createdAt =
-        _formatDate(
-      request['created_at'],
-    );
-
-    final String location =
+    final location =
         _safeText(
       request['location'],
     );
 
-    final String posterName =
+    final urgent =
+        _safeBool(
+      request['urgent'],
+    );
+
+    final posterName =
         _safeText(
       request['poster_name'],
       'Sisonke Member',
     );
 
-    final String avatarUrl =
+    final avatarUrl =
         _safeText(
       request['poster_avatar_url'],
+    );
+
+    final createdAt =
+        _formatDate(
+      request['created_at'],
     );
 
     return Padding(
@@ -636,15 +894,14 @@ class _HelpExchangeScreenState
 
       child: InkWell(
         borderRadius:
-            BorderRadius.circular(20),
+            BorderRadius.circular(
+          20,
+        ),
 
-        onTap: () {
-          _openRequest(request);
-        },
+        onTap: () =>
+            _openRequest(request),
 
         child: Container(
-          width: double.infinity,
-
           padding:
               const EdgeInsets.all(
             18,
@@ -678,9 +935,9 @@ class _HelpExchangeScreenState
                 CrossAxisAlignment.start,
 
             children: [
-              // ==============================================
-              // POSTER PROFILE
-              // ==============================================
+              // ------------------------------------------------
+              // PROFILE
+              // ------------------------------------------------
 
               Row(
                 children: [
@@ -701,78 +958,80 @@ class _HelpExchangeScreenState
                       children: [
                         Text(
                           posterName,
+
                           maxLines: 1,
+
                           overflow:
                               TextOverflow
                                   .ellipsis,
+
                           style:
                               const TextStyle(
-                            fontSize: 15,
                             fontWeight:
                                 FontWeight.bold,
-                            color: Color(
-                              0xFF1F2937,
-                            ),
+
+                            fontSize: 15,
                           ),
                         ),
 
                         const SizedBox(
-                          height: 3,
+                          height: 4,
                         ),
 
                         Row(
                           children: [
                             if (location
-                                .isNotEmpty)
-                              Expanded(
-                                child: Row(
-                                  children: [
-                                    const Icon(
-                                      Icons
-                                          .location_on_outlined,
-                                      size: 14,
-                                      color: Color(
-                                        0xFF6B7280,
-                                      ),
-                                    ),
+                                .isNotEmpty) ...[
+                              const Icon(
+                                Icons
+                                    .location_on_outlined,
 
-                                    const SizedBox(
-                                      width: 3,
-                                    ),
+                                size: 14,
 
-                                    Expanded(
-                                      child: Text(
-                                        location,
-                                        maxLines: 1,
-                                        overflow:
-                                            TextOverflow
-                                                .ellipsis,
-                                        style:
-                                            const TextStyle(
-                                          fontSize:
-                                              12,
-                                          color:
-                                              Color(
-                                            0xFF6B7280,
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                  ],
+                                color: Color(
+                                  0xFF6B7280,
                                 ),
                               ),
 
-                            if (location
-                                .isNotEmpty)
+                              const SizedBox(
+                                width: 3,
+                              ),
+
+                              Expanded(
+                                child: Text(
+                                  location,
+
+                                  maxLines: 1,
+
+                                  overflow:
+                                      TextOverflow
+                                          .ellipsis,
+
+                                  style:
+                                      const TextStyle(
+                                    fontSize:
+                                        12,
+
+                                    color:
+                                        Color(
+                                      0xFF6B7280,
+                                    ),
+                                  ),
+                                ),
+                              ),
+
                               const SizedBox(
                                 width: 8,
                               ),
+                            ],
 
                             Text(
                               createdAt,
+
                               style:
                                   const TextStyle(
                                 fontSize: 12,
+
                                 color: Color(
                                   0xFF6B7280,
                                 ),
@@ -790,14 +1049,13 @@ class _HelpExchangeScreenState
                 height: 18,
               ),
 
-              // ==============================================
-              // TITLE AND URGENT LABEL
-              // ==============================================
+              // ------------------------------------------------
+              // TITLE
+              // ------------------------------------------------
 
               Row(
                 crossAxisAlignment:
-                    CrossAxisAlignment
-                        .start,
+                    CrossAxisAlignment.start,
 
                 children: [
                   Expanded(
@@ -807,9 +1065,12 @@ class _HelpExchangeScreenState
                       style:
                           const TextStyle(
                         fontSize: 18,
+
                         fontWeight:
                             FontWeight.bold,
-                        color: Color(
+
+                        color:
+                            Color(
                           0xFF1F2937,
                         ),
                       ),
@@ -832,26 +1093,26 @@ class _HelpExchangeScreenState
 
                       decoration:
                           BoxDecoration(
-                        color:
-                            Colors.red
-                                .withAlpha(
-                          25,
-                        ),
+                        color: Colors.red
+                            .withAlpha(25),
 
                         borderRadius:
-                            BorderRadius
-                                .circular(
+                            BorderRadius.circular(
                           20,
                         ),
                       ),
 
-                      child: const Text(
+                      child:
+                          const Text(
                         'URGENT',
 
-                        style: TextStyle(
+                        style:
+                            TextStyle(
                           color:
                               Colors.red,
+
                           fontSize: 10,
+
                           fontWeight:
                               FontWeight.bold,
                         ),
@@ -861,12 +1122,12 @@ class _HelpExchangeScreenState
               ),
 
               const SizedBox(
-                height: 12,
+                height: 10,
               ),
 
-              // ==============================================
+              // ------------------------------------------------
               // DESCRIPTION
-              // ==============================================
+              // ------------------------------------------------
 
               Text(
                 description,
@@ -878,7 +1139,9 @@ class _HelpExchangeScreenState
 
                 style: TextStyle(
                   fontSize: 14,
+
                   height: 1.4,
+
                   color:
                       Colors.grey.shade700,
                 ),
@@ -888,21 +1151,103 @@ class _HelpExchangeScreenState
                 height: 16,
               ),
 
-              // ==============================================
-              // CATEGORY / STATUS
-              // ==============================================
+              // ------------------------------------------------
+              // CATEGORY
+              // ------------------------------------------------
 
               Wrap(
                 spacing: 8,
-                runSpacing: 8,
 
                 children: [
-                  _buildCategoryChip(
-                    category,
+                  Container(
+                    padding:
+                        const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 7,
+                    ),
+
+                    decoration:
+                        BoxDecoration(
+                      color:
+                          const Color(
+                        0xFFF3F4F6,
+                      ),
+
+                      borderRadius:
+                          BorderRadius.circular(
+                        20,
+                      ),
+                    ),
+
+                    child: Row(
+                      mainAxisSize:
+                          MainAxisSize.min,
+
+                      children: [
+                        Icon(
+                          _categoryIcon(
+                            category,
+                          ),
+
+                          size: 15,
+
+                          color:
+                              const Color(
+                            0xFF374151,
+                          ),
+                        ),
+
+                        const SizedBox(
+                          width: 5,
+                        ),
+
+                        Text(
+                          category,
+
+                          style:
+                              const TextStyle(
+                            fontSize: 12,
+
+                            fontWeight:
+                                FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
 
-                  _buildStatusChip(
-                    status,
+                  Container(
+                    padding:
+                        const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 7,
+                    ),
+
+                    decoration:
+                        BoxDecoration(
+                      color: Colors.green
+                          .withAlpha(25),
+
+                      borderRadius:
+                          BorderRadius.circular(
+                        20,
+                      ),
+                    ),
+
+                    child:
+                        const Text(
+                      'OPEN',
+
+                      style: TextStyle(
+                        color:
+                            Colors.green,
+
+                        fontSize: 11,
+
+                        fontWeight:
+                            FontWeight.bold,
+                      ),
+                    ),
                   ),
                 ],
               ),
@@ -911,9 +1256,9 @@ class _HelpExchangeScreenState
                 height: 16,
               ),
 
-              // ==============================================
-              // OPEN DETAILS
-              // ==============================================
+              // ------------------------------------------------
+              // VIEW REQUEST
+              // ------------------------------------------------
 
               Row(
                 children: [
@@ -921,9 +1266,8 @@ class _HelpExchangeScreenState
                     'View request',
 
                     style: TextStyle(
-                      color: Color(
-                        0xFFFFB300,
-                      ),
+                      color:
+                          Color(0xFFFFB300),
 
                       fontWeight:
                           FontWeight.bold,
@@ -934,7 +1278,9 @@ class _HelpExchangeScreenState
 
                   const Icon(
                     Icons.arrow_forward_ios,
+
                     size: 16,
+
                     color:
                         Color(0xFFFFB300),
                   ),
@@ -948,7 +1294,7 @@ class _HelpExchangeScreenState
   }
 
   // ============================================================
-  // POSTER AVATAR
+  // AVATAR
   // ============================================================
 
   Widget _buildPosterAvatar(
@@ -957,129 +1303,30 @@ class _HelpExchangeScreenState
     if (avatarUrl.isEmpty) {
       return const CircleAvatar(
         radius: 24,
+
         backgroundColor:
             Color(0xFFE5E7EB),
+
         child: Icon(
           Icons.person,
-          color: Color(0xFF6B7280),
+
+          color:
+              Color(0xFF6B7280),
         ),
       );
     }
 
     return CircleAvatar(
       radius: 24,
+
       backgroundColor:
           const Color(0xFFE5E7EB),
+
       backgroundImage:
           NetworkImage(avatarUrl),
+
       onBackgroundImageError:
-          (exception, stackTrace) {},
-      child: const SizedBox(),
-    );
-  }
-
-  // ============================================================
-  // CATEGORY CHIP
-  // ============================================================
-
-  Widget _buildCategoryChip(
-    String category,
-  ) {
-    return Container(
-      padding:
-          const EdgeInsets.symmetric(
-        horizontal: 10,
-        vertical: 6,
-      ),
-
-      decoration: BoxDecoration(
-        color:
-            const Color(0xFFF3F4F6),
-
-        borderRadius:
-            BorderRadius.circular(20),
-      ),
-
-      child: Row(
-        mainAxisSize:
-            MainAxisSize.min,
-
-        children: [
-          const Icon(
-            Icons.category_outlined,
-            size: 14,
-            color:
-                Color(0xFF6B7280),
-          ),
-
-          const SizedBox(width: 5),
-
-          Text(
-            category,
-
-            style: const TextStyle(
-              fontSize: 11,
-              color:
-                  Color(0xFF4B5563),
-              fontWeight:
-                  FontWeight.w600,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // ============================================================
-  // STATUS CHIP
-  // ============================================================
-
-  Widget _buildStatusChip(
-    String status,
-  ) {
-    final Color color =
-        _statusColor(status);
-
-    return Container(
-      padding:
-          const EdgeInsets.symmetric(
-        horizontal: 10,
-        vertical: 6,
-      ),
-
-      decoration: BoxDecoration(
-        color:
-            color.withAlpha(20),
-
-        borderRadius:
-            BorderRadius.circular(20),
-      ),
-
-      child: Row(
-        mainAxisSize:
-            MainAxisSize.min,
-
-        children: [
-          Icon(
-            Icons.circle,
-            size: 8,
-            color: color,
-          ),
-
-          const SizedBox(width: 5),
-
-          Text(
-            status,
-
-            style: TextStyle(
-              fontSize: 11,
-              color: color,
-              fontWeight:
-                  FontWeight.bold,
-            ),
-          ),
-        ],
-      ),
+          (_, __) {},
     );
   }
 
@@ -1088,46 +1335,105 @@ class _HelpExchangeScreenState
   // ============================================================
 
   Widget _buildEmptyState() {
+    final hasSearchOrFilters =
+        _searchQuery.isNotEmpty ||
+            _selectedCategory != 'All' ||
+            _selectedLocation !=
+                'All Locations';
+
     return RefreshIndicator(
-      onRefresh:
-          _refreshRequests,
+      onRefresh: _refreshRequests,
 
       child: ListView(
         physics:
             const AlwaysScrollableScrollPhysics(),
 
-        children: const [
-          SizedBox(height: 100),
+        children: [
+          const SizedBox(
+            height: 100,
+          ),
 
-          Icon(
+          const Icon(
             Icons.volunteer_activism_outlined,
-            size: 70,
-            color: Colors.grey,
+
+            size: 75,
+
+            color:
+                Color(0xFF9CA3AF),
           ),
 
-          SizedBox(height: 20),
+          const SizedBox(
+            height: 20,
+          ),
 
-          Center(
+          Text(
+            hasSearchOrFilters
+                ? 'No matching requests'
+                : 'No active Help Requests',
+
+            textAlign:
+                TextAlign.center,
+
+            style:
+                const TextStyle(
+              fontSize: 20,
+
+              fontWeight:
+                  FontWeight.bold,
+            ),
+          ),
+
+          const SizedBox(
+            height: 10,
+          ),
+
+          Padding(
+            padding:
+                const EdgeInsets.symmetric(
+              horizontal: 40,
+            ),
+
             child: Text(
-              'No help requests found.',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight:
-                    FontWeight.bold,
+              hasSearchOrFilters
+                  ? 'Try changing your search or filters.'
+                  : 'When a fellow South African requests help, it will appear here.',
+
+              textAlign:
+                  TextAlign.center,
+
+              style: const TextStyle(
+                color:
+                    Color(0xFF6B7280),
               ),
             ),
           ),
 
-          SizedBox(height: 10),
+          if (hasSearchOrFilters) ...[
+            const SizedBox(
+              height: 20,
+            ),
 
-          Center(
-            child: Text(
-              'New requests will appear here.',
-              style: TextStyle(
-                color: Colors.grey,
+            Center(
+              child: OutlinedButton(
+                onPressed: () {
+                  _searchController.clear();
+
+                  setState(() {
+                    _searchQuery = '';
+                    _selectedCategory =
+                        'All';
+                    _selectedLocation =
+                        'All Locations';
+                  });
+                },
+
+                child:
+                    const Text(
+                  'Clear Filters',
+                ),
               ),
             ),
-          ),
+          ],
         ],
       ),
     );
@@ -1137,24 +1443,22 @@ class _HelpExchangeScreenState
   // ERROR STATE
   // ============================================================
 
-  Widget _buildErrorState(
-    String error,
-  ) {
+  Widget _buildErrorState() {
     return Center(
       child: Padding(
         padding:
-            const EdgeInsets.all(
-          24,
-        ),
+            const EdgeInsets.all(24),
 
         child: Column(
-          mainAxisAlignment:
-              MainAxisAlignment.center,
+          mainAxisSize:
+              MainAxisSize.min,
 
           children: [
             const Icon(
               Icons.error_outline,
+
               size: 60,
+
               color: Colors.red,
             ),
 
@@ -1163,9 +1467,14 @@ class _HelpExchangeScreenState
             ),
 
             const Text(
-              'Unable to load requests',
+              'Unable to load Help Requests',
+
+              textAlign:
+                  TextAlign.center,
+
               style: TextStyle(
                 fontSize: 18,
+
                 fontWeight:
                     FontWeight.bold,
               ),
@@ -1176,11 +1485,15 @@ class _HelpExchangeScreenState
             ),
 
             Text(
-              error,
+              _errorMessage ??
+                  'An unexpected error occurred.',
+
               textAlign:
                   TextAlign.center,
+
               style: const TextStyle(
-                color: Colors.grey,
+                color:
+                    Color(0xFF6B7280),
               ),
             ),
 
@@ -1190,17 +1503,13 @@ class _HelpExchangeScreenState
 
             ElevatedButton.icon(
               onPressed:
-                  _refreshRequests,
+                  _loadRequests,
 
               icon:
-                  const Icon(
-                Icons.refresh,
-              ),
+                  const Icon(Icons.refresh),
 
               label:
-                  const Text(
-                'Try Again',
-              ),
+                  const Text('Try Again'),
             ),
           ],
         ),
