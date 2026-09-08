@@ -33,15 +33,15 @@ class NotificationsScreen extends StatelessWidget {
                   .from('notifications')
                   .stream(primaryKey: ['id'])
                   .eq('user_id', userId),
-              builder: (context, snapshot) {
+              builder: (
+                BuildContext context,
+                AsyncSnapshot<List<Map<String, dynamic>>> snapshot,
+              ) {
                 if (snapshot.hasError) {
                   return Center(
-                    child: Padding(
-                      padding: const EdgeInsets.all(24),
-                      child: Text(
-                        'Error loading notifications:\n${snapshot.error}',
-                        textAlign: TextAlign.center,
-                      ),
+                    child: Text(
+                      'Error loading notifications:\n${snapshot.error}',
+                      textAlign: TextAlign.center,
                     ),
                   );
                 }
@@ -95,9 +95,16 @@ class NotificationsScreen extends StatelessWidget {
                 return ListView.separated(
                   padding: const EdgeInsets.all(12),
                   itemCount: notifications.length,
-                  separatorBuilder: (_, __) =>
-                      const SizedBox(height: 8),
-                  itemBuilder: (context, index) {
+                  separatorBuilder: (
+                    BuildContext context,
+                    int index,
+                  ) {
+                    return const SizedBox(height: 8);
+                  },
+                  itemBuilder: (
+                    BuildContext context,
+                    int index,
+                  ) {
                     final notification = notifications[index];
 
                     final isUnread =
@@ -131,7 +138,8 @@ class NotificationsScreen extends StatelessWidget {
                           children: [
                             const SizedBox(height: 4),
                             Text(
-                              notification['body']?.toString() ?? '',
+                              notification['body']?.toString() ??
+                                  '',
                             ),
                             const SizedBox(height: 6),
                             Text(
