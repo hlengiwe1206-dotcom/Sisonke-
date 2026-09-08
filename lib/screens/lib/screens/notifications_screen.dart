@@ -13,7 +13,7 @@ class NotificationsScreen extends StatelessWidget {
         child: Text(
           'No notifications yet',
           style: TextStyle(
-            fontSize: 18,
+            fontSize: 16,
           ),
         ),
       ),
