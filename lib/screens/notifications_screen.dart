@@ -95,9 +95,8 @@ class NotificationsScreen extends StatelessWidget {
                 return ListView.separated(
                   padding: const EdgeInsets.all(12),
                   itemCount: notifications.length,
-                  separatorBuilder: (_, __) {
-                    return const SizedBox(height: 8);
-                  },
+                  separatorBuilder: (_, __) =>
+                      const SizedBox(height: 8),
                   itemBuilder: (context, index) {
                     final notification = notifications[index];
 
@@ -238,4 +237,4 @@ class NotificationsScreen extends StatelessWidget {
         '${localDate.hour.toString().padLeft(2, '0')}:'
         '${localDate.minute.toString().padLeft(2, '0')}';
   }
-}
+} 
