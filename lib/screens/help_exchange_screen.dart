@@ -7,13 +7,17 @@ class HelpExchangeScreen extends StatefulWidget {
   const HelpExchangeScreen({super.key});
 
   @override
-  State<HelpExchangeScreen> createState() => _HelpExchangeScreenState();
+  State<HelpExchangeScreen> createState() =>
+      _HelpExchangeScreenState();
 }
 
-class _HelpExchangeScreenState extends State<HelpExchangeScreen> {
-  final SupabaseClient _supabase = Supabase.instance.client;
+class _HelpExchangeScreenState
+    extends State<HelpExchangeScreen> {
+  final SupabaseClient _supabase =
+      Supabase.instance.client;
 
-  late Future<List<Map<String, dynamic>>> _requestsFuture;
+  late Future<List<Map<String, dynamic>>>
+      _requestsFuture;
 
   String _selectedFilter = 'All';
 
@@ -27,28 +31,126 @@ class _HelpExchangeScreenState extends State<HelpExchangeScreen> {
   @override
   void initState() {
     super.initState();
+
     _requestsFuture = _loadRequests();
   }
 
   // ============================================================
-  // LOAD HELP REQUESTS
+  // LOAD HELP REQUESTS + USER PROFILES
   // ============================================================
 
-  Future<List<Map<String, dynamic>>> _loadRequests() async {
+  Future<List<Map<String, dynamic>>>
+      _loadRequests() async {
     try {
-      final List<dynamic> data = await _supabase
-          .from('help_requests')
-          .select()
-          .order(
-            'created_at',
-            ascending: false,
+      // --------------------------------------------------------
+      // LOAD HELP REQUESTS
+      // --------------------------------------------------------
+
+      final List<dynamic> requestData =
+          await _supabase
+              .from('help_requests')
+              .select()
+              .order(
+                'created_at',
+                ascending: false,
+              );
+
+      final List<Map<String, dynamic>>
+          requests = requestData
+              .map(
+                (item) =>
+                    Map<String, dynamic>.from(item),
+              )
+              .toList();
+
+      if (requests.isEmpty) {
+        return requests;
+      }
+
+      // --------------------------------------------------------
+      // COLLECT USER IDS
+      // --------------------------------------------------------
+
+      final List<String> userIds = requests
+          .map(
+            (request) =>
+                _safeText(request['user_id']),
+          )
+          .where(
+            (userId) => userId.isNotEmpty,
+          )
+          .toSet()
+          .toList();
+
+      if (userIds.isEmpty) {
+        return requests;
+      }
+
+      // --------------------------------------------------------
+      // LOAD PROFILES
+      // --------------------------------------------------------
+
+      final List<dynamic> profileData =
+          await _supabase
+              .from('profiles')
+              .select(
+                'id, full_name, avatar_url',
+              )
+              .inFilter(
+                'id',
+                userIds,
+              );
+
+      // --------------------------------------------------------
+      // CREATE PROFILE LOOKUP MAP
+      // --------------------------------------------------------
+
+      final Map<String, Map<String, dynamic>>
+          profilesById = {};
+
+      for (final profile in profileData) {
+        final Map<String, dynamic> profileMap =
+            Map<String, dynamic>.from(profile);
+
+        final String profileId =
+            _safeText(profileMap['id']);
+
+        if (profileId.isNotEmpty) {
+          profilesById[profileId] = profileMap;
+        }
+      }
+
+      // --------------------------------------------------------
+      // ATTACH PROFILE DATA TO EACH REQUEST
+      // --------------------------------------------------------
+
+      for (final request in requests) {
+        final String userId =
+            _safeText(request['user_id']);
+
+        final Map<String, dynamic>? profile =
+            profilesById[userId];
+
+        if (profile != null) {
+          request['poster_name'] =
+              _safeText(
+            profile['full_name'],
+            'Sisonke Member',
           );
 
-      return data
-          .map(
-            (item) => Map<String, dynamic>.from(item),
-          )
-          .toList();
+          request['poster_avatar_url'] =
+              _safeText(
+            profile['avatar_url'],
+          );
+        } else {
+          request['poster_name'] =
+              'Sisonke Member';
+
+          request['poster_avatar_url'] = '';
+        }
+      }
+
+      return requests;
     } catch (error) {
       throw Exception(
         'Unable to load help requests: $error',
@@ -81,10 +183,14 @@ class _HelpExchangeScreenState extends State<HelpExchangeScreen> {
 
     return requests.where((request) {
       final String status =
-          _safeText(request['status']).toLowerCase();
+          _safeText(
+        request['status'],
+      ).toLowerCase();
 
       final bool urgent =
-          _safeBool(request['urgent']);
+          _safeBool(
+        request['urgent'],
+      );
 
       switch (_selectedFilter) {
         case 'Open':
@@ -122,7 +228,8 @@ class _HelpExchangeScreenState extends State<HelpExchangeScreen> {
     final String text =
         value.toString().trim();
 
-    if (text.isEmpty || text == 'null') {
+    if (text.isEmpty ||
+        text == 'null') {
       return fallback;
     }
 
@@ -167,7 +274,8 @@ class _HelpExchangeScreenState extends State<HelpExchangeScreen> {
                   value.toString(),
                 );
 
-      final DateTime now = DateTime.now();
+      final DateTime now =
+          DateTime.now();
 
       final Duration difference =
           now.difference(date);
@@ -204,7 +312,9 @@ class _HelpExchangeScreenState extends State<HelpExchangeScreen> {
   // STATUS COLOUR
   // ============================================================
 
-  Color _statusColor(String status) {
+  Color _statusColor(
+    String status,
+  ) {
     switch (status.toLowerCase()) {
       case 'completed':
       case 'closed':
@@ -246,7 +356,9 @@ class _HelpExchangeScreenState extends State<HelpExchangeScreen> {
   // ============================================================
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(
+    BuildContext context,
+  ) {
     return Scaffold(
       backgroundColor:
           const Color(0xFFF6F7FB),
@@ -260,14 +372,16 @@ class _HelpExchangeScreenState extends State<HelpExchangeScreen> {
         title: const Text(
           'Help Exchange',
           style: TextStyle(
-            fontWeight: FontWeight.bold,
+            fontWeight:
+                FontWeight.bold,
           ),
         ),
 
         actions: [
           IconButton(
             tooltip: 'Refresh',
-            onPressed: _refreshRequests,
+            onPressed:
+                _refreshRequests,
             icon: const Icon(
               Icons.refresh,
             ),
@@ -294,12 +408,14 @@ class _HelpExchangeScreenState extends State<HelpExchangeScreen> {
                 16,
               ),
 
-              child: SingleChildScrollView(
+              child:
+                  SingleChildScrollView(
                 scrollDirection:
                     Axis.horizontal,
 
                 child: Row(
-                  children: _filters.map(
+                  children:
+                      _filters.map(
                     (filter) {
                       final bool selected =
                           filter ==
@@ -311,19 +427,21 @@ class _HelpExchangeScreenState extends State<HelpExchangeScreen> {
                           right: 10,
                         ),
 
-                        child: ChoiceChip(
-                          label: Text(
-                            filter,
-                          ),
+                        child:
+                            ChoiceChip(
+                          label:
+                              Text(filter),
 
-                          selected: selected,
+                          selected:
+                              selected,
 
                           selectedColor:
                               const Color(
                             0xFFFFB300,
                           ),
 
-                          labelStyle: TextStyle(
+                          labelStyle:
+                              TextStyle(
                             color: selected
                                 ? Colors.white
                                 : const Color(
@@ -359,7 +477,8 @@ class _HelpExchangeScreenState extends State<HelpExchangeScreen> {
             Expanded(
               child: FutureBuilder<
                   List<Map<String, dynamic>>>(
-                future: _requestsFuture,
+                future:
+                    _requestsFuture,
 
                 builder: (
                   context,
@@ -383,7 +502,8 @@ class _HelpExchangeScreenState extends State<HelpExchangeScreen> {
 
                   if (snapshot.hasError) {
                     return _buildErrorState(
-                      snapshot.error.toString(),
+                      snapshot.error
+                          .toString(),
                     );
                   }
 
@@ -403,7 +523,8 @@ class _HelpExchangeScreenState extends State<HelpExchangeScreen> {
                   // EMPTY
                   // ============================================
 
-                  if (filteredRequests.isEmpty) {
+                  if (filteredRequests
+                      .isEmpty) {
                     return _buildEmptyState();
                   }
 
@@ -415,20 +536,25 @@ class _HelpExchangeScreenState extends State<HelpExchangeScreen> {
                     onRefresh:
                         _refreshRequests,
 
-                    child: ListView.builder(
+                    child:
+                        ListView.builder(
                       physics:
                           const AlwaysScrollableScrollPhysics(),
 
                       padding:
-                          const EdgeInsets.all(16),
+                          const EdgeInsets.all(
+                        16,
+                      ),
 
                       itemCount:
-                          filteredRequests.length,
+                          filteredRequests
+                              .length,
 
                       itemBuilder:
                           (context, index) {
                         final request =
-                            filteredRequests[index];
+                            filteredRequests[
+                                index];
 
                         return _buildRequestCard(
                           request,
@@ -486,6 +612,22 @@ class _HelpExchangeScreenState extends State<HelpExchangeScreen> {
       request['created_at'],
     );
 
+    final String location =
+        _safeText(
+      request['location'],
+    );
+
+    final String posterName =
+        _safeText(
+      request['poster_name'],
+      'Sisonke Member',
+    );
+
+    final String avatarUrl =
+        _safeText(
+      request['poster_avatar_url'],
+    );
+
     return Padding(
       padding:
           const EdgeInsets.only(
@@ -496,10 +638,6 @@ class _HelpExchangeScreenState extends State<HelpExchangeScreen> {
         borderRadius:
             BorderRadius.circular(20),
 
-        // ==============================================
-        // CORRECT NAVIGATION LOCATION
-        // ==============================================
-
         onTap: () {
           _openRequest(request);
         },
@@ -508,13 +646,17 @@ class _HelpExchangeScreenState extends State<HelpExchangeScreen> {
           width: double.infinity,
 
           padding:
-              const EdgeInsets.all(18),
+              const EdgeInsets.all(
+            18,
+          ),
 
           decoration: BoxDecoration(
             color: Colors.white,
 
             borderRadius:
-                BorderRadius.circular(20),
+                BorderRadius.circular(
+              20,
+            ),
 
             boxShadow: [
               BoxShadow(
@@ -536,25 +678,140 @@ class _HelpExchangeScreenState extends State<HelpExchangeScreen> {
                 CrossAxisAlignment.start,
 
             children: [
-              // ==========================================
+              // ==============================================
+              // POSTER PROFILE
+              // ==============================================
+
+              Row(
+                children: [
+                  _buildPosterAvatar(
+                    avatarUrl,
+                  ),
+
+                  const SizedBox(
+                    width: 12,
+                  ),
+
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment:
+                          CrossAxisAlignment
+                              .start,
+
+                      children: [
+                        Text(
+                          posterName,
+                          maxLines: 1,
+                          overflow:
+                              TextOverflow
+                                  .ellipsis,
+                          style:
+                              const TextStyle(
+                            fontSize: 15,
+                            fontWeight:
+                                FontWeight.bold,
+                            color: Color(
+                              0xFF1F2937,
+                            ),
+                          ),
+                        ),
+
+                        const SizedBox(
+                          height: 3,
+                        ),
+
+                        Row(
+                          children: [
+                            if (location
+                                .isNotEmpty)
+                              Expanded(
+                                child: Row(
+                                  children: [
+                                    const Icon(
+                                      Icons
+                                          .location_on_outlined,
+                                      size: 14,
+                                      color: Color(
+                                        0xFF6B7280,
+                                      ),
+                                    ),
+
+                                    const SizedBox(
+                                      width: 3,
+                                    ),
+
+                                    Expanded(
+                                      child: Text(
+                                        location,
+                                        maxLines: 1,
+                                        overflow:
+                                            TextOverflow
+                                                .ellipsis,
+                                        style:
+                                            const TextStyle(
+                                          fontSize:
+                                              12,
+                                          color:
+                                              Color(
+                                            0xFF6B7280,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+
+                            if (location
+                                .isNotEmpty)
+                              const SizedBox(
+                                width: 8,
+                              ),
+
+                            Text(
+                              createdAt,
+                              style:
+                                  const TextStyle(
+                                fontSize: 12,
+                                color: Color(
+                                  0xFF6B7280,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+
+              const SizedBox(
+                height: 18,
+              ),
+
+              // ==============================================
               // TITLE AND URGENT LABEL
-              // ==========================================
+              // ==============================================
 
               Row(
                 crossAxisAlignment:
-                    CrossAxisAlignment.start,
+                    CrossAxisAlignment
+                        .start,
 
                 children: [
                   Expanded(
                     child: Text(
                       title,
 
-                      style: const TextStyle(
+                      style:
+                          const TextStyle(
                         fontSize: 18,
                         fontWeight:
                             FontWeight.bold,
-                        color:
-                            Color(0xFF1F2937),
+                        color: Color(
+                          0xFF1F2937,
+                        ),
                       ),
                     ),
                   ),
@@ -576,12 +833,14 @@ class _HelpExchangeScreenState extends State<HelpExchangeScreen> {
                       decoration:
                           BoxDecoration(
                         color:
-                            Colors.red.withAlpha(
+                            Colors.red
+                                .withAlpha(
                           25,
                         ),
 
                         borderRadius:
-                            BorderRadius.circular(
+                            BorderRadius
+                                .circular(
                           20,
                         ),
                       ),
@@ -590,7 +849,8 @@ class _HelpExchangeScreenState extends State<HelpExchangeScreen> {
                         'URGENT',
 
                         style: TextStyle(
-                          color: Colors.red,
+                          color:
+                              Colors.red,
                           fontSize: 10,
                           fontWeight:
                               FontWeight.bold,
@@ -600,11 +860,13 @@ class _HelpExchangeScreenState extends State<HelpExchangeScreen> {
                 ],
               ),
 
-              const SizedBox(height: 12),
+              const SizedBox(
+                height: 12,
+              ),
 
-              // ==========================================
+              // ==============================================
               // DESCRIPTION
-              // ==========================================
+              // ==============================================
 
               Text(
                 description,
@@ -622,11 +884,13 @@ class _HelpExchangeScreenState extends State<HelpExchangeScreen> {
                 ),
               ),
 
-              const SizedBox(height: 16),
+              const SizedBox(
+                height: 16,
+              ),
 
-              // ==========================================
-              // CATEGORY / STATUS / DATE
-              // ==========================================
+              // ==============================================
+              // CATEGORY / STATUS
+              // ==============================================
 
               Wrap(
                 spacing: 8,
@@ -640,27 +904,24 @@ class _HelpExchangeScreenState extends State<HelpExchangeScreen> {
                   _buildStatusChip(
                     status,
                   ),
-
-                  _buildDateChip(
-                    createdAt,
-                  ),
                 ],
               ),
 
-              const SizedBox(height: 16),
+              const SizedBox(
+                height: 16,
+              ),
 
-              // ==========================================
+              // ==============================================
               // OPEN DETAILS
-              // ==========================================
+              // ==============================================
 
               Row(
                 children: [
-                  Text(
+                  const Text(
                     'View request',
 
                     style: TextStyle(
-                      color:
-                          const Color(
+                      color: Color(
                         0xFFFFB300,
                       ),
 
@@ -683,6 +944,37 @@ class _HelpExchangeScreenState extends State<HelpExchangeScreen> {
           ),
         ),
       ),
+    );
+  }
+
+  // ============================================================
+  // POSTER AVATAR
+  // ============================================================
+
+  Widget _buildPosterAvatar(
+    String avatarUrl,
+  ) {
+    if (avatarUrl.isEmpty) {
+      return const CircleAvatar(
+        radius: 24,
+        backgroundColor:
+            Color(0xFFE5E7EB),
+        child: Icon(
+          Icons.person,
+          color: Color(0xFF6B7280),
+        ),
+      );
+    }
+
+    return CircleAvatar(
+      radius: 24,
+      backgroundColor:
+          const Color(0xFFE5E7EB),
+      backgroundImage:
+          NetworkImage(avatarUrl),
+      onBackgroundImageError:
+          (exception, stackTrace) {},
+      child: const SizedBox(),
     );
   }
 
@@ -716,7 +1008,8 @@ class _HelpExchangeScreenState extends State<HelpExchangeScreen> {
           const Icon(
             Icons.category_outlined,
             size: 14,
-            color: Color(0xFF6B7280),
+            color:
+                Color(0xFF6B7280),
           ),
 
           const SizedBox(width: 5),
@@ -791,55 +1084,6 @@ class _HelpExchangeScreenState extends State<HelpExchangeScreen> {
   }
 
   // ============================================================
-  // DATE CHIP
-  // ============================================================
-
-  Widget _buildDateChip(
-    String date,
-  ) {
-    return Container(
-      padding:
-          const EdgeInsets.symmetric(
-        horizontal: 10,
-        vertical: 6,
-      ),
-
-      decoration: BoxDecoration(
-        color:
-            const Color(0xFFF9FAFB),
-
-        borderRadius:
-            BorderRadius.circular(20),
-      ),
-
-      child: Row(
-        mainAxisSize:
-            MainAxisSize.min,
-
-        children: [
-          const Icon(
-            Icons.access_time,
-            size: 14,
-            color: Color(0xFF6B7280),
-          ),
-
-          const SizedBox(width: 5),
-
-          Text(
-            date,
-
-            style: const TextStyle(
-              fontSize: 11,
-              color:
-                  Color(0xFF6B7280),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // ============================================================
   // EMPTY STATE
   // ============================================================
 
@@ -899,7 +1143,9 @@ class _HelpExchangeScreenState extends State<HelpExchangeScreen> {
     return Center(
       child: Padding(
         padding:
-            const EdgeInsets.all(24),
+            const EdgeInsets.all(
+          24,
+        ),
 
         child: Column(
           mainAxisAlignment:
@@ -912,7 +1158,9 @@ class _HelpExchangeScreenState extends State<HelpExchangeScreen> {
               color: Colors.red,
             ),
 
-            const SizedBox(height: 16),
+            const SizedBox(
+              height: 16,
+            ),
 
             const Text(
               'Unable to load requests',
@@ -923,7 +1171,9 @@ class _HelpExchangeScreenState extends State<HelpExchangeScreen> {
               ),
             ),
 
-            const SizedBox(height: 10),
+            const SizedBox(
+              height: 10,
+            ),
 
             Text(
               error,
@@ -934,17 +1184,23 @@ class _HelpExchangeScreenState extends State<HelpExchangeScreen> {
               ),
             ),
 
-            const SizedBox(height: 20),
+            const SizedBox(
+              height: 20,
+            ),
 
             ElevatedButton.icon(
               onPressed:
                   _refreshRequests,
 
               icon:
-                  const Icon(Icons.refresh),
+                  const Icon(
+                Icons.refresh,
+              ),
 
               label:
-                  const Text('Try Again'),
+                  const Text(
+                'Try Again',
+              ),
             ),
           ],
         ),
