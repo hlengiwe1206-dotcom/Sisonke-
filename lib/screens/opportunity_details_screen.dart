@@ -19,21 +19,19 @@ class _OpportunityDetailsScreenState
   final SupabaseClient _supabase =
       Supabase.instance.client;
 
-  bool _isLoadingSaveStatus = true;
-  bool _isSaving = false;
+  bool _isCheckingSaved = true;
   bool _isSaved = false;
+  bool _isSaving = false;
+
+  String? _savedOpportunityId;
 
   @override
   void initState() {
     super.initState();
-    _loadSaveStatus();
+    _checkSavedStatus();
   }
 
-  // ============================================================
-  // DATA HELPERS
-  // ============================================================
-
-  String _getString(
+  String _value(
     List<String> keys, {
     String fallback = '',
   }) {
@@ -41,50 +39,22 @@ class _OpportunityDetailsScreenState
       final value = widget.opportunity[key];
 
       if (value != null &&
-          value
-              .toString()
-              .trim()
-              .isNotEmpty) {
-        return value
-            .toString()
-            .trim();
+          value.toString().trim().isNotEmpty) {
+        return value.toString();
       }
     }
 
     return fallback;
   }
 
-  bool _getBool(
-    List<String> keys, {
-    bool fallback = false,
-  }) {
-    for (final key in keys) {
-      final value = widget.opportunity[key];
-
-      if (value == null) {
-        continue;
-      }
-
-      if (value is bool) {
-        return value;
-      }
-
-      final text =
-          value
-              .toString()
-              .trim()
-              .toLowerCase();
-
-      return text == 'true' ||
-          text == '1' ||
-          text == 'yes';
-    }
-
-    return fallback;
+  String get _opportunityId {
+    return widget.opportunity['id']
+            ?.toString() ??
+        '';
   }
 
-  String _title() {
-    return _getString(
+  String get _title {
+    return _value(
       [
         'title',
         'name',
@@ -94,42 +64,43 @@ class _OpportunityDetailsScreenState
     );
   }
 
-  String _description() {
-    return _getString(
+  String get _description {
+    return _value(
       [
         'description',
-        'summary',
         'details',
-        'content',
+        'summary',
       ],
+      fallback: 'No description available.',
     );
   }
 
-  String _category() {
-    return _getString(
-      [
-        'category',
-        'type',
-        'opportunity_type',
-      ],
-      fallback: 'Opportunity',
-    );
-  }
-
-  String _organisation() {
-    return _getString(
+  String get _organisation {
+    return _value(
       [
         'organisation',
         'organization',
         'company',
         'provider',
-        'source',
       ],
+      fallback: 'Organisation not specified',
     );
   }
 
-  String _location() {
-    return _getString(
+  String get _category {
+    return _value(
+      [
+        'category',
+        'type',
+        'opportunity_type',
+        'opportunity_category',
+      ],
+      fallback: 'Opportunity',
+    );
+  }
+
+  String get _location {
+    return _value(
       [
         'location',
         'province',
@@ -138,326 +109,113 @@ class _OpportunityDetailsScreenState
     );
   }
 
-  String _referenceNumber() {
-    return _getString(
-      [
-        'reference_number',
-        'tender_number',
-        'tender_id',
-        'opportunity_number',
-        'reference',
-      ],
-    );
-  }
-
-  String _applicationUrl() {
-    return _getString(
-      [
-        'application_url',
-        'apply_url',
-        'url',
-        'link',
-        'source_url',
-      ],
-    );
-  }
-
-  String _requirements() {
-    return _getString(
-      [
-        'requirements',
-        'eligibility',
-        'criteria',
-      ],
-    );
-  }
-
-  String _contactInformation() {
-    return _getString(
-      [
-        'contact_information',
-        'contact',
-        'contact_details',
-        'email',
-      ],
-    );
-  }
-
-  DateTime? _getDate(
-    List<String> keys,
-  ) {
-    for (final key in keys) {
-      final value = widget.opportunity[key];
-
-      if (value == null) {
-        continue;
-      }
-
-      final date =
-          DateTime.tryParse(
-        value.toString(),
-      );
-
-      if (date != null) {
-        return date.toLocal();
-      }
-    }
-
-    return null;
-  }
-
-  DateTime? _closingDate() {
-    return _getDate(
+  String get _closingDate {
+    return _value(
       [
         'closing_date',
         'deadline',
-        'application_deadline',
-        'expiry_date',
+        'closing',
       ],
     );
   }
 
-  DateTime? _publishedDate() {
-    return _getDate(
+  String get _url {
+    return _value(
       [
-        'published_at',
-        'created_at',
-        'advert_date',
+        'url',
+        'link',
+        'application_url',
+        'website',
       ],
     );
   }
 
-  String _formatDate(
-    DateTime date,
-  ) {
-    final day =
-        date.day
-            .toString()
-            .padLeft(2, '0');
-
-    final month =
-        date.month
-            .toString()
-            .padLeft(2, '0');
-
-    return '$day/$month/${date.year}';
-  }
-
-  String _daysRemaining(
-    DateTime date,
-  ) {
-    final now = DateTime.now();
-
-    final today =
-        DateTime(
-      now.year,
-      now.month,
-      now.day,
-    );
-
-    final closing =
-        DateTime(
-      date.year,
-      date.month,
-      date.day,
-    );
-
-    final difference =
-        closing.difference(today).inDays;
-
-    if (difference < 0) {
-      return 'Closed';
-    }
-
-    if (difference == 0) {
-      return 'Closes today';
-    }
-
-    if (difference == 1) {
-      return '1 day remaining';
-    }
-
-    return '$difference days remaining';
-  }
-
-  // ============================================================
-  // CATEGORY UI
-  // ============================================================
-
-  IconData _categoryIcon(
-    String category,
-  ) {
-    final value =
-        category.toLowerCase();
-
-    if (value.contains('tender')) {
-      return Icons.description_outlined;
-    }
-
-    if (value.contains('job') ||
-        value.contains('employment')) {
-      return Icons.work_outline;
-    }
-
-    if (value.contains('fund') ||
-        value.contains('grant')) {
-      return Icons.account_balance_outlined;
-    }
-
-    if (value.contains('learnership') ||
-        value.contains('internship') ||
-        value.contains('apprenticeship')) {
-      return Icons.school_outlined;
-    }
-
-    if (value.contains('training')) {
-      return Icons.menu_book_outlined;
-    }
-
-    if (value.contains('business')) {
-      return Icons.business_center_outlined;
-    }
-
-    if (value.contains('education') ||
-        value.contains('bursary')) {
-      return Icons.auto_stories_outlined;
-    }
-
-    return Icons.campaign_outlined;
-  }
-
-  Color _categoryColor(
-    String category,
-  ) {
-    final value =
-        category.toLowerCase();
-
-    if (value.contains('tender')) {
-      return const Color(0xFF7B1FA2);
-    }
-
-    if (value.contains('job') ||
-        value.contains('employment')) {
-      return const Color(0xFF1565C0);
-    }
-
-    if (value.contains('fund') ||
-        value.contains('grant')) {
-      return const Color(0xFF2E7D32);
-    }
-
-    if (value.contains('learnership') ||
-        value.contains('internship') ||
-        value.contains('apprenticeship')) {
-      return const Color(0xFFF57C00);
-    }
-
-    if (value.contains('training')) {
-      return const Color(0xFF00838F);
-    }
-
-    if (value.contains('business')) {
-      return const Color(0xFF5D4037);
-    }
-
-    if (value.contains('education') ||
-        value.contains('bursary')) {
-      return const Color(0xFFC62828);
-    }
-
-    return const Color(0xFF37474F);
-  }
-
-  // ============================================================
-  // SAVE STATUS
-  // ============================================================
-
-  Future<void> _loadSaveStatus() async {
+  Future<void> _checkSavedStatus() async {
     final user =
         _supabase.auth.currentUser;
 
-    final opportunityId =
-        widget.opportunity['id']?.toString();
-
     if (user == null ||
-        opportunityId == null ||
-        opportunityId.isEmpty) {
+        _opportunityId.isEmpty) {
       if (!mounted) return;
 
       setState(() {
-        _isSaved = false;
-        _isLoadingSaveStatus = false;
+        _isCheckingSaved = false;
       });
 
       return;
     }
 
     try {
-      final response =
-          await _supabase
-              .from('opportunity_saves')
-              .select('id')
-              .eq(
-                'user_id',
-                user.id,
-              )
-              .eq(
-                'opportunity_id',
-                opportunityId,
-              )
-              .maybeSingle();
+      final response = await _supabase
+          .from('saved_opportunities')
+          .select('id')
+          .eq('user_id', user.id)
+          .eq(
+            'opportunity_id',
+            _opportunityId,
+          )
+          .maybeSingle();
 
       if (!mounted) return;
 
       setState(() {
-        _isSaved =
-            response != null;
+        if (response != null) {
+          _isSaved = true;
+          _savedOpportunityId =
+              response['id']?.toString();
+        } else {
+          _isSaved = false;
+          _savedOpportunityId = null;
+        }
 
-        _isLoadingSaveStatus = false;
+        _isCheckingSaved = false;
       });
-    } catch (_) {
+    } catch (error) {
+      debugPrint(
+        'Error checking saved opportunity: $error',
+      );
+
       if (!mounted) return;
 
       setState(() {
-        _isSaved = false;
-        _isLoadingSaveStatus = false;
+        _isCheckingSaved = false;
       });
     }
   }
 
-  // ============================================================
-  // SAVE / REMOVE
-  // ============================================================
-
   Future<void> _toggleSave() async {
-    if (_isSaving) {
-      return;
-    }
-
     final user =
         _supabase.auth.currentUser;
 
-    final opportunityId =
-        widget.opportunity['id']?.toString();
-
     if (user == null) {
-      _showMessage(
-        'Please sign in to save opportunities.',
-        isError: true,
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Please sign in to save opportunities.',
+          ),
+        ),
       );
 
       return;
     }
 
-    if (opportunityId == null ||
-        opportunityId.isEmpty) {
-      _showMessage(
-        'This opportunity cannot be saved because its ID is missing.',
-        isError: true,
+    if (_opportunityId.isEmpty) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'This opportunity does not have a valid ID.',
+          ),
+        ),
       );
 
       return;
     }
+
+    if (_isSaving) return;
 
     setState(() {
       _isSaving = true;
@@ -465,204 +223,297 @@ class _OpportunityDetailsScreenState
 
     try {
       if (_isSaved) {
-        await _supabase
-            .from('opportunity_saves')
-            .delete()
-            .eq(
-              'user_id',
-              user.id,
-            )
-            .eq(
-              'opportunity_id',
-              opportunityId,
-            );
-
-        if (!mounted) return;
-
-        setState(() {
-          _isSaved = false;
-        });
-
-        _showMessage(
-          'Removed from saved opportunities.',
+        await _removeSavedOpportunity(
+          user.id,
         );
       } else {
-        final existingSave =
-            await _supabase
-                .from('opportunity_saves')
-                .select('id')
-                .eq(
-                  'user_id',
-                  user.id,
-                )
-                .eq(
-                  'opportunity_id',
-                  opportunityId,
-                )
-                .maybeSingle();
-
-        if (existingSave == null) {
-          await _supabase
-              .from('opportunity_saves')
-              .insert(
-            {
-              'user_id': user.id,
-              'opportunity_id':
-                  opportunityId,
-            },
-          );
-        }
-
-        if (!mounted) return;
-
-        setState(() {
-          _isSaved = true;
-        });
-
-        _showMessage(
-          'Opportunity saved successfully.',
+        await _saveOpportunity(
+          user.id,
         );
       }
     } catch (error) {
+      debugPrint(
+        'Save opportunity error: $error',
+      );
+
       if (!mounted) return;
 
-      _showMessage(
-        'Unable to update saved opportunity: $error',
-        isError: true,
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Unable to update saved opportunities.\n$error',
+          ),
+        ),
       );
     } finally {
-      if (mounted) {
-        setState(() {
-          _isSaving = false;
-        });
-      }
+      if (!mounted) return;
+
+      setState(() {
+        _isSaving = false;
+      });
     }
   }
 
-  void _showMessage(
-    String message, {
-    bool isError = false,
-  }) {
+  Future<void> _saveOpportunity(
+    String userId,
+  ) async {
+    final response = await _supabase
+        .from('saved_opportunities')
+        .insert({
+          'user_id': userId,
+          'opportunity_id': _opportunityId,
+        })
+        .select('id')
+        .single();
+
     if (!mounted) return;
 
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(
-        SnackBar(
-          content:
-              Text(message),
-          backgroundColor:
-              isError
-                  ? const Color(
-                      0xFFE9322A,
-                    )
-                  : const Color(
-                      0xFF198754,
-                    ),
+    setState(() {
+      _isSaved = true;
+      _savedOpportunityId =
+          response['id']?.toString();
+    });
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text(
+          'Opportunity saved successfully.',
         ),
-      );
+      ),
+    );
   }
 
-  // ============================================================
-  // BUILD
-  // ============================================================
+  Future<void> _removeSavedOpportunity(
+    String userId,
+  ) async {
+    if (_savedOpportunityId != null) {
+      await _supabase
+          .from('saved_opportunities')
+          .delete()
+          .eq(
+            'id',
+            _savedOpportunityId!,
+          );
+    } else {
+      await _supabase
+          .from('saved_opportunities')
+          .delete()
+          .eq('user_id', userId)
+          .eq(
+            'opportunity_id',
+            _opportunityId,
+          );
+    }
+
+    if (!mounted) return;
+
+    setState(() {
+      _isSaved = false;
+      _savedOpportunityId = null;
+    });
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text(
+          'Opportunity removed from saved opportunities.',
+        ),
+      ),
+    );
+  }
+
+  IconData _categoryIcon() {
+    final category =
+        _category.toLowerCase();
+
+    if (category.contains('job')) {
+      return Icons.work_outline;
+    }
+
+    if (category.contains('tender')) {
+      return Icons.description_outlined;
+    }
+
+    if (category.contains('fund')) {
+      return Icons.account_balance_wallet_outlined;
+    }
+
+    if (category.contains('train')) {
+      return Icons.school_outlined;
+    }
+
+    if (category.contains('learn')) {
+      return Icons.menu_book_outlined;
+    }
+
+    return Icons.campaign_outlined;
+  }
 
   @override
-  Widget build(
-    BuildContext context,
-  ) {
-    final title =
-        _title();
-
-    final category =
-        _category();
-
-    final organisation =
-        _organisation();
-
-    final description =
-        _description();
-
-    final location =
-        _location();
-
-    final reference =
-        _referenceNumber();
-
-    final requirements =
-        _requirements();
-
-    final contact =
-        _contactInformation();
-
-    final applicationUrl =
-        _applicationUrl();
-
-    final closingDate =
-        _closingDate();
-
-    final publishedDate =
-        _publishedDate();
-
-    final verified =
-        _getBool(
-      [
-        'is_verified',
-        'verified',
-      ],
-    );
-
-    final categoryColor =
-        _categoryColor(
-      category,
-    );
-
+  Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor:
-          const Color(0xFFF8F7F4),
-
       appBar: AppBar(
-        backgroundColor:
-            const Color(0xFFF8F7F4),
-
-        elevation: 0,
-
-        surfaceTintColor:
-            Colors.transparent,
-
         title: const Text(
-          'Opportunity Details',
+          'Opportunity',
         ),
-
+        centerTitle: true,
         actions: [
-          if (_isLoadingSaveStatus)
-            const Padding(
-              padding:
-                  EdgeInsets.symmetric(
-                horizontal: 16,
+          IconButton(
+            tooltip: _isSaved
+                ? 'Remove from saved'
+                : 'Save opportunity',
+            onPressed: _isCheckingSaved ||
+                    _isSaving
+                ? null
+                : _toggleSave,
+            icon: _isCheckingSaved
+                ? const SizedBox(
+                    width: 22,
+                    height: 22,
+                    child:
+                        CircularProgressIndicator(
+                      strokeWidth: 2,
+                    ),
+                  )
+                : Icon(
+                    _isSaved
+                        ? Icons.bookmark
+                        : Icons.bookmark_border,
+                  ),
+          ),
+        ],
+      ),
+      body: SafeArea(
+        child: SingleChildScrollView(
+          padding:
+              const EdgeInsets.all(24),
+          child: Column(
+            crossAxisAlignment:
+                CrossAxisAlignment.start,
+            children: [
+              _buildCategoryHeader(),
+
+              const SizedBox(
+                height: 28,
               ),
-              child:
-                  SizedBox(
-                width: 22,
-                height: 22,
-                child:
-                    CircularProgressIndicator(
-                  strokeWidth: 2,
+
+              Text(
+                _title,
+                style:
+                    const TextStyle(
+                  fontSize: 32,
+                  fontWeight:
+                      FontWeight.w700,
+                  height: 1.15,
                 ),
               ),
-            )
-          else
-            IconButton(
-              tooltip:
-                  _isSaved
-                      ? 'Remove from saved'
-                      : 'Save opportunity',
-              onPressed:
-                  _isSaving
-                      ? null
-                      : _toggleSave,
-              icon:
-                  _isSaving
+
+              const SizedBox(
+                height: 20,
+              ),
+
+              _buildOrganisation(),
+
+              if (_location.isNotEmpty) ...[
+                const SizedBox(
+                  height: 16,
+                ),
+
+                _buildInformationRow(
+                  icon:
+                      Icons.location_on_outlined,
+                  label:
+                      'Location',
+                  value:
+                      _location,
+                ),
+              ],
+
+              if (_closingDate.isNotEmpty) ...[
+                const SizedBox(
+                  height: 16,
+                ),
+
+                _buildInformationRow(
+                  icon:
+                      Icons.calendar_today_outlined,
+                  label:
+                      'Closing date',
+                  value:
+                      _closingDate,
+                ),
+              ],
+
+              const SizedBox(
+                height: 32,
+              ),
+
+              const Text(
+                'About this opportunity',
+                style: TextStyle(
+                  fontSize: 22,
+                  fontWeight:
+                      FontWeight.w700,
+                ),
+              ),
+
+              const SizedBox(
+                height: 14,
+              ),
+
+              Text(
+                _description,
+                style:
+                    const TextStyle(
+                  fontSize: 17,
+                  height: 1.6,
+                ),
+              ),
+
+              if (_url.isNotEmpty) ...[
+                const SizedBox(
+                  height: 32,
+                ),
+
+                const Text(
+                  'Application information',
+                  style: TextStyle(
+                    fontSize: 22,
+                    fontWeight:
+                        FontWeight.w700,
+                  ),
+                ),
+
+                const SizedBox(
+                  height: 14,
+                ),
+
+                SelectableText(
+                  _url,
+                  style: TextStyle(
+                    color: Theme.of(
+                      context,
+                    )
+                        .colorScheme
+                        .primary,
+                    fontSize: 16,
+                  ),
+                ),
+              ],
+
+              const SizedBox(
+                height: 40,
+              ),
+
+              SizedBox(
+                width: double.infinity,
+                height: 56,
+                child: ElevatedButton.icon(
+                  onPressed:
+                      _isCheckingSaved ||
+                              _isSaving
+                          ? null
+                          : _toggleSave,
+                  icon: _isSaving
                       ? const SizedBox(
                           width: 22,
                           height: 22,
@@ -675,561 +526,33 @@ class _OpportunityDetailsScreenState
                           _isSaved
                               ? Icons.bookmark
                               : Icons.bookmark_border,
-                          color:
-                              _isSaved
-                                  ? const Color(
-                                      0xFFE9322A,
-                                    )
-                                  : null,
                         ),
-            ),
-        ],
-      ),
-
-      body: SafeArea(
-        top: false,
-
-        child: SingleChildScrollView(
-          padding:
-              const EdgeInsets.fromLTRB(
-            16,
-            8,
-            16,
-            32,
-          ),
-
-          child: Column(
-            crossAxisAlignment:
-                CrossAxisAlignment.start,
-
-            children: [
-              // ==================================================
-              // HERO CARD
-              // ==================================================
-
-              Container(
-                width:
-                    double.infinity,
-
-                padding:
-                    const EdgeInsets.all(
-                  22,
-                ),
-
-                decoration:
-                    BoxDecoration(
-                  color:
-                      Colors.white,
-
-                  borderRadius:
-                      BorderRadius.circular(
-                    24,
-                  ),
-
-                  border:
-                      Border.all(
-                    color:
-                        const Color(
-                      0xFFEAEAEA,
-                    ),
-                  ),
-                ),
-
-                child: Column(
-                  crossAxisAlignment:
-                      CrossAxisAlignment.start,
-
-                  children: [
-                    Row(
-                      children: [
-                        Container(
-                          width: 58,
-                          height: 58,
-
-                          decoration:
-                              BoxDecoration(
-                            color:
-                                categoryColor
-                                    .withOpacity(
-                              0.12,
-                            ),
-
-                            borderRadius:
-                                BorderRadius.circular(
-                              18,
-                            ),
-                          ),
-
-                          child: Icon(
-                            _categoryIcon(
-                              category,
-                            ),
-
-                            size: 30,
-
-                            color:
-                                categoryColor,
-                          ),
-                        ),
-
-                        const SizedBox(
-                          width: 14,
-                        ),
-
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment:
-                                CrossAxisAlignment
-                                    .start,
-
-                            children: [
-                              Text(
-                                category
-                                    .toUpperCase(),
-
-                                style:
-                                    TextStyle(
-                                  fontSize: 12,
-
-                                  letterSpacing:
-                                      1,
-
-                                  fontWeight:
-                                      FontWeight
-                                          .w800,
-
-                                  color:
-                                      categoryColor,
-                                ),
-                              ),
-
-                              if (verified) ...[
-                                const SizedBox(
-                                  height: 5,
-                                ),
-
-                                const Row(
-                                  children: [
-                                    Icon(
-                                      Icons.verified,
-                                      size: 16,
-                                      color:
-                                          Color(
-                                        0xFF198754,
-                                      ),
-                                    ),
-
-                                    SizedBox(
-                                      width: 5,
-                                    ),
-
-                                    Text(
-                                      'VERIFIED OPPORTUNITY',
-                                      style:
-                                          TextStyle(
-                                        fontSize: 10,
-                                        fontWeight:
-                                            FontWeight
-                                                .w800,
-                                        color:
-                                            Color(
-                                          0xFF198754,
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ],
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-
-                    const SizedBox(
-                      height: 22,
-                    ),
-
-                    Text(
-                      title,
-
-                      style:
-                          const TextStyle(
-                        fontSize: 25,
-                        height: 1.2,
-                        fontWeight:
-                            FontWeight.w800,
-                        color:
-                            Color(
-                          0xFF1F232B,
-                        ),
-                      ),
-                    ),
-
-                    if (organisation
-                        .isNotEmpty) ...[
-                      const SizedBox(
-                        height: 10,
-                      ),
-
-                      Text(
-                        organisation,
-
-                        style:
-                            const TextStyle(
-                          fontSize: 16,
-                          fontWeight:
-                              FontWeight.w600,
-                          color:
-                              Color(
-                            0xFF6B7280,
-                          ),
-                        ),
-                      ),
-                    ],
-
-                    if (closingDate !=
-                        null) ...[
-                      const SizedBox(
-                        height: 20,
-                      ),
-
-                      Container(
-                        padding:
-                            const EdgeInsets.symmetric(
-                          horizontal: 14,
-                          vertical: 10,
-                        ),
-
-                        decoration:
-                            BoxDecoration(
-                          color:
-                              const Color(
-                            0xFFFFF1F0,
-                          ),
-
-                          borderRadius:
-                              BorderRadius.circular(
-                            14,
-                          ),
-                        ),
-
-                        child: Row(
-                          children: [
-                            const Icon(
-                              Icons
-                                  .calendar_today_outlined,
-                              size: 18,
-                              color:
-                                  Color(
-                                0xFFE9322A,
-                              ),
-                            ),
-
-                            const SizedBox(
-                              width: 9,
-                            ),
-
-                            Expanded(
-                              child: Text(
-                                'Closes ${_formatDate(closingDate)}',
-                                style:
-                                    const TextStyle(
-                                  fontWeight:
-                                      FontWeight
-                                          .w700,
-                                  color:
-                                      Color(
-                                    0xFFE9322A,
-                                  ),
-                                ),
-                              ),
-                            ),
-
-                            Text(
-                              _daysRemaining(
-                                closingDate,
-                              ),
-
-                              style:
-                                  const TextStyle(
-                                fontSize: 12,
-                                fontWeight:
-                                    FontWeight
-                                        .w700,
-                                color:
-                                    Color(
-                                  0xFFE9322A,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-
-              const SizedBox(
-                height: 20,
-              ),
-
-              // ==================================================
-              // DETAILS
-              // ==================================================
-
-              _buildSection(
-                title:
-                    'About this opportunity',
-                child:
-                    description.isNotEmpty
-                        ? Text(
-                            description,
-                            style:
-                                const TextStyle(
-                              fontSize: 15,
-                              height: 1.55,
-                              color:
-                                  Color(
-                                0xFF374151,
-                              ),
-                            ),
-                          )
-                        : const Text(
-                            'No additional description has been provided.',
-                            style:
-                                TextStyle(
-                              color:
-                                  Color(
-                                0xFF9CA3AF,
-                              ),
-                            ),
-                          ),
-              ),
-
-              if (location.isNotEmpty ||
-                  reference.isNotEmpty ||
-                  publishedDate != null)
-                ...[
-                  const SizedBox(
-                    height: 16,
-                  ),
-
-                  _buildSection(
-                    title:
-                        'Opportunity information',
-
-                    child: Column(
-                      children: [
-                        if (location.isNotEmpty)
-                          _buildInfoRow(
-                            Icons.location_on_outlined,
-                            'Location',
-                            location,
-                          ),
-
-                        if (reference.isNotEmpty)
-                          _buildInfoRow(
-                            Icons
-                                .confirmation_number_outlined,
-                            'Reference',
-                            reference,
-                          ),
-
-                        if (publishedDate != null)
-                          _buildInfoRow(
-                            Icons
-                                .publish_outlined,
-                            'Published',
-                            _formatDate(
-                              publishedDate,
-                            ),
-                          ),
-
-                        if (closingDate != null)
-                          _buildInfoRow(
-                            Icons
-                                .event_busy_outlined,
-                            'Closing date',
-                            _formatDate(
-                              closingDate,
-                            ),
-                          ),
-                      ],
-                    ),
-                  ),
-                ],
-
-              if (requirements
-                  .isNotEmpty) ...[
-                const SizedBox(
-                  height: 16,
-                ),
-
-                _buildSection(
-                  title:
-                      'Requirements / Eligibility',
-
-                  child: Text(
-                    requirements,
-
-                    style:
-                        const TextStyle(
-                      fontSize: 15,
-                      height: 1.55,
-                      color:
-                          Color(
-                        0xFF374151,
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-
-              if (contact
-                  .isNotEmpty) ...[
-                const SizedBox(
-                  height: 16,
-                ),
-
-                _buildSection(
-                  title:
-                      'Contact information',
-
-                  child: Text(
-                    contact,
-
-                    style:
-                        const TextStyle(
-                      fontSize: 15,
-                      height: 1.55,
-                      color:
-                          Color(
-                        0xFF374151,
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-
-              if (applicationUrl
-                  .isNotEmpty) ...[
-                const SizedBox(
-                  height: 16,
-                ),
-
-                _buildSection(
-                  title:
-                      'Application / Source',
-
-                  child: SelectableText(
-                    applicationUrl,
-
-                    style:
-                        const TextStyle(
-                      fontSize: 14,
-                      color:
-                          Color(
-                        0xFF1565C0,
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-
-              const SizedBox(
-                height: 24,
-              ),
-
-              // ==================================================
-              // SAVE BUTTON
-              // ==================================================
-
-              SizedBox(
-                width:
-                    double.infinity,
-
-                height: 54,
-
-                child: ElevatedButton.icon(
-                  onPressed:
-                      _isLoadingSaveStatus ||
-                              _isSaving
-                          ? null
-                          : _toggleSave,
-
-                  icon:
-                      _isSaving
-                          ? const SizedBox(
-                              width: 20,
-                              height: 20,
-                              child:
-                                  CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color:
-                                    Colors.white,
-                              ),
-                            )
-                          : Icon(
-                              _isSaved
-                                  ? Icons.bookmark
-                                  : Icons.bookmark_border,
-                            ),
-
                   label: Text(
                     _isSaving
                         ? 'Please wait...'
                         : _isSaved
-                            ? 'Saved Opportunity'
-                            : 'Save Opportunity',
-                  ),
-
-                  style:
-                      ElevatedButton.styleFrom(
-                    backgroundColor:
-                        _isSaved
-                            ? const Color(
-                                0xFFE9322A,
-                              )
-                            : const Color(
-                                0xFF1F232B,
-                              ),
-
-                    foregroundColor:
-                        Colors.white,
-
-                    shape:
-                        RoundedRectangleBorder(
-                      borderRadius:
-                          BorderRadius.circular(
-                        16,
-                      ),
-                    ),
+                            ? 'SAVED'
+                            : 'SAVE OPPORTUNITY',
                   ),
                 ),
               ),
 
               const SizedBox(
-                height: 12,
+                height: 16,
               ),
 
-              Center(
-                child: Text(
-                  _isSaved
-                      ? 'This opportunity is saved to your account.'
-                      : 'Save this opportunity to access it later.',
-
-                  textAlign:
-                      TextAlign.center,
-
-                  style:
-                      const TextStyle(
-                    fontSize: 12,
-                    color:
-                        Color(
-                      0xFF9CA3AF,
-                    ),
+              SizedBox(
+                width: double.infinity,
+                height: 54,
+                child: OutlinedButton(
+                  onPressed: () {
+                    Navigator.pushNamed(
+                      context,
+                      '/saved-opportunities',
+                    );
+                  },
+                  child: const Text(
+                    'VIEW SAVED OPPORTUNITIES',
                   ),
                 ),
               ),
@@ -1240,164 +563,127 @@ class _OpportunityDetailsScreenState
     );
   }
 
-  // ============================================================
-  // REUSABLE UI
-  // ============================================================
-
-  Widget _buildSection({
-    required String title,
-    required Widget child,
-  }) {
-    return Container(
-      width:
-          double.infinity,
-
-      padding:
-          const EdgeInsets.all(
-        20,
-      ),
-
-      decoration:
-          BoxDecoration(
-        color:
-            Colors.white,
-
-        borderRadius:
-            BorderRadius.circular(
-          20,
-        ),
-
-        border:
-            Border.all(
-          color:
-              const Color(
-            0xFFEAEAEA,
+  Widget _buildCategoryHeader() {
+    return Row(
+      children: [
+        Container(
+          width: 58,
+          height: 58,
+          decoration:
+              BoxDecoration(
+            borderRadius:
+                BorderRadius.circular(16),
+            color: Theme.of(context)
+                .colorScheme
+                .primary
+                .withOpacity(0.10),
+          ),
+          child: Icon(
+            _categoryIcon(),
+            size: 30,
           ),
         ),
-      ),
 
-      child: Column(
-        crossAxisAlignment:
-            CrossAxisAlignment.start,
+        const SizedBox(
+          width: 14,
+        ),
 
-        children: [
-          Text(
-            title,
+        Expanded(
+          child: Text(
+            _category,
+            style: TextStyle(
+              fontSize: 17,
+              color:
+                  Colors.grey.shade600,
+              fontWeight:
+                  FontWeight.w600,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
 
+  Widget _buildOrganisation() {
+    return Row(
+      crossAxisAlignment:
+          CrossAxisAlignment.start,
+      children: [
+        const Icon(
+          Icons.business_outlined,
+          size: 22,
+        ),
+
+        const SizedBox(
+          width: 10,
+        ),
+
+        Expanded(
+          child: Text(
+            _organisation,
             style:
                 const TextStyle(
               fontSize: 17,
               fontWeight:
-                  FontWeight.w800,
-              color:
-                  Color(
-                0xFF1F232B,
-              ),
+                  FontWeight.w600,
             ),
           ),
-
-          const SizedBox(
-            height: 12,
-          ),
-
-          child,
-        ],
-      ),
+        ),
+      ],
     );
   }
 
-  Widget _buildInfoRow(
-    IconData icon,
-    String label,
-    String value,
-  ) {
-    return Padding(
-      padding:
-          const EdgeInsets.only(
-        bottom: 14,
-      ),
+  Widget _buildInformationRow({
+    required IconData icon,
+    required String label,
+    required String value,
+  }) {
+    return Row(
+      crossAxisAlignment:
+          CrossAxisAlignment.start,
+      children: [
+        Icon(
+          icon,
+          size: 21,
+          color:
+              Colors.grey.shade600,
+        ),
 
-      child: Row(
-        crossAxisAlignment:
-            CrossAxisAlignment.start,
+        const SizedBox(
+          width: 10,
+        ),
 
-        children: [
-          Container(
-            width: 36,
-            height: 36,
-
-            decoration:
-                BoxDecoration(
-              color:
-                  const Color(
-                0xFFF3F4F6,
+        Expanded(
+          child: Column(
+            crossAxisAlignment:
+                CrossAxisAlignment.start,
+            children: [
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 13,
+                  color:
+                      Colors.grey.shade600,
+                ),
               ),
 
-              borderRadius:
-                  BorderRadius.circular(
-                10,
+              const SizedBox(
+                height: 3,
               ),
-            ),
 
-            child: Icon(
-              icon,
-
-              size: 18,
-
-              color:
-                  const Color(
-                0xFF4B5563,
+              Text(
+                value,
+                style:
+                    const TextStyle(
+                  fontSize: 16,
+                  fontWeight:
+                      FontWeight.w600,
+                ),
               ),
-            ),
+            ],
           ),
-
-          const SizedBox(
-            width: 12,
-          ),
-
-          Expanded(
-            child: Column(
-              crossAxisAlignment:
-                  CrossAxisAlignment
-                      .start,
-
-              children: [
-                Text(
-                  label,
-
-                  style:
-                      const TextStyle(
-                    fontSize: 12,
-                    color:
-                        Color(
-                      0xFF9CA3AF,
-                    ),
-                  ),
-                ),
-
-                const SizedBox(
-                  height: 3,
-                ),
-
-                Text(
-                  value,
-
-                  style:
-                      const TextStyle(
-                    fontSize: 15,
-                    fontWeight:
-                        FontWeight.w600,
-                    color:
-                        Color(
-                      0xFF1F232B,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 }
