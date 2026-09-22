@@ -1,36 +1,53 @@
-name: Unpack Sisonke Flutter Project
+name: Build Sisonke Android
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - main
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  unpack:
+  build-android:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
+      - name: Checkout current GitHub source
         uses: actions/checkout@v4
 
-      - name: Install unzip
-        run: sudo apt-get update && sudo apt-get install -y unzip
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
 
-      - name: Extract Sisonke project
+      - name: Verify Flutter project
         run: |
-          unzip -o Sisonke_GitHub_Ready_CORRECTED.zip -d extracted_project
-          shopt -s dotglob
-          mv extracted_project/* .
-          rm -rf extracted_project
+          test -f pubspec.yaml
+          test -d lib
+          echo "Building directly from current GitHub source."
+          echo "Legacy ZIP extraction is disabled."
 
-      - name: Configure Git
+      - name: Generate Android platform files
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if [ ! -d android ]; then
+            flutter create --platforms=android .
+          fi
 
-      - name: Commit extracted Flutter project
-        run: |
-          git add .
-          git commit -m "Extract Sisonke Live MVP v4 Flutter project" || echo "No changes to commit"
-          git push
+      - name: Get dependencies
+        run: flutter pub get
+
+      - name: Analyze Flutter project
+        run: flutter analyze
+
+      - name: Build debug APK
+        run: flutter build apk --debug
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: sisonke-debug-apk
+          path: build/app/outputs/flutter-apk/app-debug.apk
+          if-no-files-found: error 
