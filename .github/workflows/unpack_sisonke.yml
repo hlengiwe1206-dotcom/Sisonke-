@@ -30,6 +30,11 @@ jobs:
           echo "Building directly from current GitHub source."
           echo "Legacy ZIP extraction is disabled."
 
+      - name: Remove unused default Flutter tests
+        run: |
+          rm -rf test
+          echo "Default Flutter test directory removed."
+
       - name: Generate Android platform files
         run: |
           if [ ! -d android ]; then
@@ -50,4 +55,4 @@ jobs:
         with:
           name: sisonke-debug-apk
           path: build/app/outputs/flutter-apk/app-debug.apk
-          if-no-files-found: error 
+          if-no-files-found: error
