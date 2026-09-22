@@ -1,0 +1,88 @@
+name: Sisonke Current Source Build
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-android:
+    name: Build Current Sisonke Source
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout current main source
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Verify current source
+        run: |
+          echo "======================================"
+          echo "SISONKE CURRENT SOURCE BUILD"
+          echo "======================================"
+
+          test -f pubspec.yaml
+          test -d lib
+
+          echo ""
+          echo "Checking Help Exchange source..."
+
+          if grep -R "'type': 'help_needed'" lib/data lib/screens; then
+            echo ""
+            echo "OK: help_needed found in current source."
+          else
+            echo ""
+            echo "ERROR: help_needed was not found."
+            exit 1
+          fi
+
+          if grep -R "'type': 'help_request'" lib/data lib/screens; then
+            echo ""
+            echo "ERROR: OLD help_request VALUE FOUND."
+            exit 1
+          else
+            echo ""
+            echo "OK: old help_request value not found."
+          fi
+
+      - name: Remove obsolete default tests
+        run: |
+          rm -rf test
+          echo "Obsolete default test directory removed."
+
+      - name: Get Flutter dependencies
+        run: flutter pub get
+
+      - name: Generate Android platform
+        run: |
+          if [ ! -d android ]; then
+            flutter create --platforms=android .
+          fi
+
+      - name: Run Flutter analyze
+        run: flutter analyze
+
+      - name: Build current debug APK
+        run: flutter build apk --debug
+
+      - name: Verify APK
+        run: |
+          test -f build/app/outputs/flutter-apk/app-debug.apk
+          echo ""
+          echo "CURRENT SISONKE APK:"
+          ls -lh build/app/outputs/flutter-apk/app-debug.apk
+
+      - name: Upload current Sisonke APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Sisonke-CURRENT-SOURCE-Debug-APK
+          path: build/app/outputs/flutter-apk/app-debug.apk
+          if-no-files-found: error
