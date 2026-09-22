@@ -17,6 +17,19 @@ jobs:
         with:
           ref: main
 
+      - name: Remove obsolete default Flutter tests
+        run: |
+          echo "Removing obsolete default Flutter test project..."
+
+          if [ -d test ]; then
+            rm -rf test
+            echo "test/ directory removed."
+          else
+            echo "No test/ directory found."
+          fi
+
+          test ! -d test
+
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
@@ -53,10 +66,15 @@ jobs:
             echo "OK: old help_request value not found."
           fi
 
-      - name: Remove obsolete default tests
-        run: |
-          rm -rf test
-          echo "Obsolete default test directory removed."
+          echo ""
+          echo "Checking obsolete tests..."
+
+          if [ -d test ]; then
+            echo "ERROR: test/ directory still exists."
+            exit 1
+          else
+            echo "OK: obsolete test directory is absent."
+          fi
 
       - name: Get Flutter dependencies
         run: flutter pub get
@@ -76,8 +94,12 @@ jobs:
       - name: Verify APK
         run: |
           test -f build/app/outputs/flutter-apk/app-debug.apk
+
           echo ""
-          echo "CURRENT SISONKE APK:"
+          echo "======================================"
+          echo "CURRENT SISONKE APK"
+          echo "======================================"
+
           ls -lh build/app/outputs/flutter-apk/app-debug.apk
 
       - name: Upload current Sisonke APK
