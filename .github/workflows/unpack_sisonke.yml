@@ -28,12 +28,12 @@ jobs:
           test -f pubspec.yaml
           test -d lib
           echo "Building directly from current GitHub source."
-          echo "Legacy ZIP extraction is disabled."
+          echo "No ZIP extraction step is used."
 
-      - name: Remove unused default Flutter tests
+      - name: Remove default Flutter test files
         run: |
           rm -rf test
-          echo "Default Flutter test directory removed."
+          echo "Removed default Flutter test directory."
 
       - name: Generate Android platform files
         run: |
