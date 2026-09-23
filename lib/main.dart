@@ -3,25 +3,24 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'core/supabase_config.dart';
 import 'core/theme.dart';
-
+import 'screens/action_sheet.dart';
 import 'screens/auth_screen.dart';
-import 'screens/home_screen.dart';
+import 'screens/backend_setup_screen.dart';
+import 'screens/connect_screen.dart';
 import 'screens/discover_screen.dart';
-import 'screens/profile_screen.dart';
-import 'screens/create_help_request_screen.dart';
 import 'screens/help_exchange_screen.dart';
-import 'screens/opportunities_screen.dart';
-import 'screens/opportunity_details_screen.dart';
-import 'screens/saved_opportunities_screen.dart';
-import 'screens/notifications_screen.dart';
+import 'screens/home_screen.dart';
+import 'screens/profile_screen.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  await Supabase.initialize(
-    url: SupabaseConfig.url,
-    anonKey: SupabaseConfig.anonKey,
-  );
+  if (SupabaseConfig.isConfigured) {
+    await Supabase.initialize(
+      url: SupabaseConfig.url,
+      publishableKey: SupabaseConfig.publishableKey,
+    );
+  }
 
   runApp(const SisonkeApp());
 }
@@ -35,37 +34,9 @@ class SisonkeApp extends StatelessWidget {
       title: 'Sisonke',
       debugShowCheckedModeBanner: false,
       theme: sisonkeTheme(),
-
-      home: const AuthGate(),
-
-      routes: {
-        '/home': (context) => const HomeScreen(),
-
-        '/discover': (context) => const DiscoverScreen(),
-
-        '/profile': (context) => const ProfileScreen(),
-
-        '/create-help-request': (context) =>
-            const CreateHelpRequestScreen(),
-
-        '/help-exchange': (context) =>
-            const HelpExchangeScreen(),
-
-        '/opportunities': (context) =>
-            const OpportunitiesScreen(),
-
-        '/saved-opportunities': (context) =>
-            const SavedOpportunitiesScreen(),
-
-        '/notifications': (context) =>
-            const NotificationsScreen(),
-      },
-
-      onUnknownRoute: (settings) {
-        return MaterialPageRoute(
-          builder: (_) => const AuthGate(),
-        );
-      },
+      home: !SupabaseConfig.isConfigured
+          ? const BackendSetupScreen()
+          : const AuthGate(),
     );
   }
 }
@@ -78,15 +49,93 @@ class AuthGate extends StatelessWidget {
     return StreamBuilder<AuthState>(
       stream: Supabase.instance.client.auth.onAuthStateChange,
       builder: (context, snapshot) {
-        final session =
-            Supabase.instance.client.auth.currentSession;
+        final session = Supabase.instance.client.auth.currentSession;
 
-        if (session != null) {
-          return const HomeScreen();
+        if (session == null) {
+          return const AuthScreen();
         }
 
-        return const AuthScreen();
+        return const AppShell();
       },
+    );
+  }
+}
+
+class AppShell extends StatefulWidget {
+  const AppShell({super.key});
+
+  @override
+  State<AppShell> createState() => _AppShellState();
+}
+
+class _AppShellState extends State<AppShell> {
+  int index = 0;
+
+  void openAction() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(
+          top: Radius.circular(30),
+        ),
+      ),
+      builder: (_) => const ActionSheet(),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final screens = [
+      HomeScreen(onAction: openAction),
+      const DiscoverScreen(),
+      const HelpExchangeScreen(),
+      const ConnectScreen(),
+      const ProfileScreen(),
+    ];
+
+    return Scaffold(
+      body: screens[index],
+      bottomNavigationBar: NavigationBar(
+        selectedIndex: index,
+        onDestinationSelected: (value) {
+          if (value == 2) {
+            openAction();
+          } else {
+            setState(() {
+              index = value;
+            });
+          }
+        },
+        destinations: const [
+          NavigationDestination(
+            icon: Icon(Icons.home_outlined),
+            selectedIcon: Icon(Icons.home),
+            label: 'Home',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.explore_outlined),
+            selectedIcon: Icon(Icons.explore),
+            label: 'Discover',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.add_circle_outline),
+            selectedIcon: Icon(Icons.add_circle),
+            label: 'Action',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.handshake_outlined),
+            selectedIcon: Icon(Icons.handshake),
+            label: 'Connect',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.person_outline),
+            selectedIcon: Icon(Icons.person),
+            label: 'Profile',
+          ),
+        ],
+      ),
     );
   }
 }
