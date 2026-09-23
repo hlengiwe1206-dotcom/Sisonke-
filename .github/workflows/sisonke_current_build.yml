@@ -13,64 +13,44 @@ jobs:
 
     steps:
 
-      # --------------------------------------------------
-      # 1. CHECK OUT CURRENT MAIN SOURCE
-      # --------------------------------------------------
+      # ==================================================
+      # 1. CHECKOUT CURRENT MAIN SOURCE
+      # ==================================================
       - name: Checkout current main source
         uses: actions/checkout@v4
         with:
           ref: main
 
-      # --------------------------------------------------
-      # 2. REMOVE OBSOLETE FLUTTER TEST PROJECT
-      # --------------------------------------------------
-      - name: Remove obsolete default Flutter tests
-        run: |
-          echo "======================================"
-          echo "REMOVING OBSOLETE TEST DIRECTORY"
-          echo "======================================"
-
-          if [ -d test ]; then
-            rm -rf test
-            echo "test/ directory removed successfully."
-          else
-            echo "No test/ directory found."
-          fi
-
-          if [ -d test ]; then
-            echo "ERROR: test/ directory still exists."
-            exit 1
-          fi
-
-          echo "OK: test/ directory is absent."
-
-      # --------------------------------------------------
-      # 3. SET UP FLUTTER
-      # --------------------------------------------------
+      # ==================================================
+      # 2. SET UP FLUTTER
+      # ==================================================
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
           channel: stable
           cache: true
 
-      # --------------------------------------------------
-      # 4. SHOW FLUTTER VERSION
-      # --------------------------------------------------
+      # ==================================================
+      # 3. SHOW FLUTTER VERSION
+      # ==================================================
       - name: Show Flutter version
         run: |
+          echo "======================================"
+          echo "FLUTTER VERSION"
+          echo "======================================"
           flutter --version
 
-      # --------------------------------------------------
-      # 5. VERIFY CURRENT SISONKE SOURCE
-      # --------------------------------------------------
+      # ==================================================
+      # 4. VERIFY SISONKE SOURCE
+      # ==================================================
       - name: Verify current source
         run: |
           echo "======================================"
-          echo "SISONKE CURRENT SOURCE VERIFICATION"
+          echo "SISONKE SOURCE VERIFICATION"
           echo "======================================"
 
           echo ""
-          echo "Checking project files..."
+          echo "Checking project structure..."
 
           test -f pubspec.yaml
           test -d lib
@@ -83,20 +63,19 @@ jobs:
 
           if grep -R "'type': 'help_needed'" lib/data lib/screens; then
             echo ""
-            echo "OK: help_needed found in current source."
+            echo "OK: help_needed found."
           else
             echo ""
-            echo "ERROR: help_needed was not found."
+            echo "ERROR: help_needed was NOT found."
             exit 1
           fi
 
           echo ""
-          echo "Checking for obsolete help_request enum value..."
+          echo "Checking for obsolete help_request enum..."
 
           if grep -R "'type': 'help_request'" lib/data lib/screens; then
             echo ""
             echo "ERROR: OLD help_request VALUE FOUND."
-            echo "The current source must use help_needed."
             exit 1
           else
             echo ""
@@ -104,56 +83,58 @@ jobs:
           fi
 
           echo ""
-          echo "Checking obsolete test directory..."
-
-          if [ -d test ]; then
-            echo "ERROR: test/ directory exists."
-            exit 1
-          else
-            echo "OK: obsolete test directory is absent."
-          fi
-
-          echo ""
           echo "======================================"
           echo "SOURCE VERIFICATION PASSED"
           echo "======================================"
 
-      # --------------------------------------------------
-      # 6. GET DEPENDENCIES
-      # --------------------------------------------------
+      # ==================================================
+      # 5. GET FLUTTER DEPENDENCIES
+      # ==================================================
       - name: Get Flutter dependencies
         run: |
+          echo "======================================"
+          echo "GETTING FLUTTER DEPENDENCIES"
+          echo "======================================"
+
           flutter pub get
 
-      # --------------------------------------------------
-      # 7. GENERATE ANDROID PLATFORM
-      # --------------------------------------------------
+      # ==================================================
+      # 6. GENERATE ANDROID PLATFORM
+      # ==================================================
       - name: Generate Android platform
         run: |
-          echo "Checking Android platform..."
+          echo "======================================"
+          echo "ANDROID PLATFORM"
+          echo "======================================"
 
           if [ ! -d android ]; then
-            echo "Android directory not found."
+            echo "Android directory does not exist."
             echo "Generating Android platform..."
+
             flutter create --platforms=android .
           else
             echo "Android directory already exists."
           fi
 
-      # --------------------------------------------------
-      # 8. ANALYZE FLUTTER PROJECT
-      # --------------------------------------------------
-      - name: Run Flutter analyze
+      # ==================================================
+      # 7. ANALYZE ONLY APPLICATION SOURCE
+      # ==================================================
+      - name: Analyze Sisonke application source
         run: |
           echo "======================================"
-          echo "RUNNING FLUTTER ANALYZE"
+          echo "ANALYZING SISONKE APPLICATION SOURCE"
           echo "======================================"
 
-          flutter analyze --no-fatal-warnings --no-fatal-infos
+          echo ""
+          echo "IMPORTANT:"
+          echo "Analysis is restricted to lib/."
+          echo "Obsolete Flutter starter tests are excluded."
 
-      # --------------------------------------------------
-      # 9. BUILD DEBUG APK
-      # --------------------------------------------------
+          flutter analyze lib --no-fatal-warnings --no-fatal-infos
+
+      # ==================================================
+      # 8. BUILD DEBUG APK
+      # ==================================================
       - name: Build current debug APK
         run: |
           echo "======================================"
@@ -162,9 +143,9 @@ jobs:
 
           flutter build apk --debug
 
-      # --------------------------------------------------
-      # 10. VERIFY APK
-      # --------------------------------------------------
+      # ==================================================
+      # 9. VERIFY APK
+      # ==================================================
       - name: Verify APK
         run: |
           echo "======================================"
@@ -174,6 +155,7 @@ jobs:
           APK_PATH="build/app/outputs/flutter-apk/app-debug.apk"
 
           if [ ! -f "$APK_PATH" ]; then
+            echo ""
             echo "ERROR: APK was not generated."
             exit 1
           fi
@@ -187,9 +169,9 @@ jobs:
           echo "SISONKE APK READY"
           echo "======================================"
 
-      # --------------------------------------------------
-      # 11. UPLOAD CURRENT APK
-      # --------------------------------------------------
+      # ==================================================
+      # 10. UPLOAD CURRENT APK
+      # ==================================================
       - name: Upload current Sisonke APK
         uses: actions/upload-artifact@v4
         with:
