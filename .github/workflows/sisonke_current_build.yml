@@ -1,4 +1,4 @@
-name: Sisonke Current Source Build
+name: SISONKE - CURRENT SOURCE APK
 
 on:
   workflow_dispatch:
@@ -8,171 +8,72 @@ permissions:
 
 jobs:
   build-android:
-    name: Build Current Sisonke Source
+    name: CURRENT SISONKE BUILD
     runs-on: ubuntu-latest
 
     steps:
 
-      # ==================================================
-      # 1. CHECKOUT CURRENT MAIN SOURCE
-      # ==================================================
       - name: Checkout current main source
         uses: actions/checkout@v4
         with:
           ref: main
 
-      # ==================================================
-      # 2. SET UP FLUTTER
-      # ==================================================
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
           channel: stable
           cache: true
 
-      # ==================================================
-      # 3. SHOW FLUTTER VERSION
-      # ==================================================
       - name: Show Flutter version
-        run: |
-          echo "======================================"
-          echo "FLUTTER VERSION"
-          echo "======================================"
-          flutter --version
+        run: flutter --version
 
-      # ==================================================
-      # 4. VERIFY SISONKE SOURCE
-      # ==================================================
       - name: Verify current source
         run: |
           echo "======================================"
-          echo "SISONKE SOURCE VERIFICATION"
+          echo "SISONKE CURRENT SOURCE"
           echo "======================================"
-
-          echo ""
-          echo "Checking project structure..."
 
           test -f pubspec.yaml
           test -d lib
 
-          echo "OK: pubspec.yaml found."
-          echo "OK: lib/ directory found."
-
           echo ""
-          echo "Checking Help Exchange implementation..."
+          echo "Checking Help Exchange..."
 
-          if grep -R "'type': 'help_needed'" lib/data lib/screens; then
-            echo ""
-            echo "OK: help_needed found."
-          else
-            echo ""
-            echo "ERROR: help_needed was NOT found."
-            exit 1
-          fi
-
-          echo ""
-          echo "Checking for obsolete help_request enum..."
+          grep -R "'type': 'help_needed'" lib/data lib/screens
 
           if grep -R "'type': 'help_request'" lib/data lib/screens; then
-            echo ""
-            echo "ERROR: OLD help_request VALUE FOUND."
+            echo "ERROR: OLD help_request VALUE FOUND"
             exit 1
-          else
-            echo ""
-            echo "OK: old help_request value not found."
           fi
 
           echo ""
-          echo "======================================"
-          echo "SOURCE VERIFICATION PASSED"
-          echo "======================================"
+          echo "OK: Help Exchange source verified."
 
-      # ==================================================
-      # 5. GET FLUTTER DEPENDENCIES
-      # ==================================================
       - name: Get Flutter dependencies
-        run: |
-          echo "======================================"
-          echo "GETTING FLUTTER DEPENDENCIES"
-          echo "======================================"
+        run: flutter pub get
 
-          flutter pub get
-
-      # ==================================================
-      # 6. GENERATE ANDROID PLATFORM
-      # ==================================================
       - name: Generate Android platform
         run: |
-          echo "======================================"
-          echo "ANDROID PLATFORM"
-          echo "======================================"
-
           if [ ! -d android ]; then
-            echo "Android directory does not exist."
-            echo "Generating Android platform..."
-
             flutter create --platforms=android .
-          else
-            echo "Android directory already exists."
           fi
 
-      # ==================================================
-      # 7. ANALYZE ONLY APPLICATION SOURCE
-      # ==================================================
-      - name: Analyze Sisonke application source
+      - name: Analyze Sisonke application
         run: |
-          echo "======================================"
-          echo "ANALYZING SISONKE APPLICATION SOURCE"
-          echo "======================================"
+          flutter analyze lib \
+            --no-fatal-warnings \
+            --no-fatal-infos
 
-          echo ""
-          echo "IMPORTANT:"
-          echo "Analysis is restricted to lib/."
-          echo "Obsolete Flutter starter tests are excluded."
-
-          flutter analyze lib --no-fatal-warnings --no-fatal-infos
-
-      # ==================================================
-      # 8. BUILD DEBUG APK
-      # ==================================================
       - name: Build current debug APK
         run: |
-          echo "======================================"
-          echo "BUILDING CURRENT SISONKE APK"
-          echo "======================================"
-
           flutter build apk --debug
 
-      # ==================================================
-      # 9. VERIFY APK
-      # ==================================================
       - name: Verify APK
         run: |
-          echo "======================================"
-          echo "VERIFYING APK"
-          echo "======================================"
+          test -f build/app/outputs/flutter-apk/app-debug.apk
+          ls -lh build/app/outputs/flutter-apk/app-debug.apk
 
-          APK_PATH="build/app/outputs/flutter-apk/app-debug.apk"
-
-          if [ ! -f "$APK_PATH" ]; then
-            echo ""
-            echo "ERROR: APK was not generated."
-            exit 1
-          fi
-
-          echo ""
-          echo "APK successfully generated:"
-          ls -lh "$APK_PATH"
-
-          echo ""
-          echo "======================================"
-          echo "SISONKE APK READY"
-          echo "======================================"
-
-      # ==================================================
-      # 10. UPLOAD CURRENT APK
-      # ==================================================
-      - name: Upload current Sisonke APK
+      - name: Upload CURRENT Sisonke APK
         uses: actions/upload-artifact@v4
         with:
           name: Sisonke-CURRENT-SOURCE-Debug-APK
